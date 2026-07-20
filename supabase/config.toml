@@ -1,0 +1,4 @@
+project_id = "inqnyoqqhtogrvgjyavo"
+
+[functions.msob-medical-files]
+verify_jwt = false

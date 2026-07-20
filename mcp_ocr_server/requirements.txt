@@ -1,0 +1,7 @@
+groq
+python-dotenv
+pypdf
+python-docx
+PyMuPDF
+mcp
+python-multipart

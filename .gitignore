@@ -1,0 +1,36 @@
+# Credentials and local Supabase state
+mcp_ocr_server/.env
+supabase/.temp/
+.env
+.env.*
+!.env.example
+
+# Local and generated material
+Archive/
+Documentation/
+Project Documentation/
+backend/
+patients-testing/
+tmp/
+*.docx
+*.pdf
+
+# Local launch and tunnel files
+Launch MSOB AI.vbs
+launch_msob.bat
+launch_msob.ps1
+MCP Link.txt
+
+# Python and editor artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.vscode/
+.idea/
+
+# Test-only source
+mcp_ocr_server/test_ocr_server.py
+mcp_ocr_server/launch.bat
+mcp_ocr_server/launch.ps1
+frontend/vendor/*.map
+desktop.ini

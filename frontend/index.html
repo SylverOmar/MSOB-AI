@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>MSOB AI</title>
+  <link rel="icon" type="image/png" href="favicon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="secure.css?v=27">
+</head>
+<body>
+  <div id="app-loading" class="app-loading" aria-live="polite">
+    <img src="Logo.png" alt="">
+    <span>Chargement…</span>
+  </div>
+
+  <main id="landing" class="landing hidden">
+    <section class="landing-card" aria-labelledby="landing-title">
+      <div class="landing-brand">
+        <div class="landing-mark-stage" aria-hidden="true">
+          <!-- 14-Layer Stack to give the logo extra 3D solid thickness (extrusion) -->
+          <img class="landing-mark-part landing-mark-depth depth-m7" src="Logo_upper.png" alt="">
+          <img class="landing-mark-part landing-mark-depth depth-m6" src="Logo_upper.png" alt="">
+          <img class="landing-mark-part landing-mark-depth depth-m5" src="Logo_upper.png" alt="">
+          <img class="landing-mark-part landing-mark-depth depth-m4" src="Logo_upper.png" alt="">
+          <img class="landing-mark-part landing-mark-depth depth-m3" src="Logo_upper.png" alt="">
+          <img class="landing-mark-part landing-mark-depth depth-m2" src="Logo_upper.png" alt="">
+          <img class="landing-mark-part landing-mark-depth depth-m1" src="Logo_upper.png" alt="">
+          <img class="landing-mark-part landing-mark-depth depth-0" src="Logo_upper.png" alt="">
+          <img class="landing-mark-part landing-mark-depth depth-p1" src="Logo_upper.png" alt="">
+          <img class="landing-mark-part landing-mark-depth depth-p2" src="Logo_upper.png" alt="">
+          <img class="landing-mark-part landing-mark-depth depth-p3" src="Logo_upper.png" alt="">
+          <img class="landing-mark-part landing-mark-depth depth-p4" src="Logo_upper.png" alt="">
+          <img class="landing-mark-part landing-mark-depth depth-p5" src="Logo_upper.png" alt="">
+          <img class="landing-mark-part landing-mark-depth depth-p6" src="Logo_upper.png" alt="">
+          
+          <span id="landing-mark-edge" class="landing-mark-edge"></span>
+          <img class="landing-mark-part landing-mark-face landing-mark-back" src="Logo_upper.png" alt="">
+          <img class="landing-mark-part landing-mark-face landing-mark-front" src="Logo_upper.png" alt="">
+        </div>
+              <img class="landing-wordmark" src="Logo_lower.png" alt="MSOB AI">
+      </div>
+      <h1 id="landing-title" class="sr-only">MSOB AI</h1>
+      <p>Choisissez votre espace.</p>
+      <div class="choice-grid">
+        <button class="choice-button doctor-choice" type="button" data-role="doctor">
+          <span class="choice-icon" data-icon="doctor" aria-hidden="true"></span>
+          <strong>Médecin</strong>
+          <span>Accéder aux dossiers patients</span>
+        </button>
+        <button class="choice-button admin-choice" type="button" data-role="admin">
+          <span class="choice-icon" data-icon="admin" aria-hidden="true"></span>
+          <strong>Administration</strong>
+          <span>Gérer les médecins autorisés</span>
+        </button>
+      </div>
+    </section>
+  </main>
+
+  <section id="doctor-area" class="area hidden">
+    <header class="topbar">
+      <button class="back-choice" type="button" data-back-choice>← Changer d'espace</button>
+      <button id="doctor-home" class="brand-button" type="button" aria-label="Accueil médecin">
+        <img src="Logo.png" alt="MSOB AI">
+      </button>
+      <span id="doctor-name" class="actor-name"></span>
+    </header>
+
+    <div class="workspace">
+      <aside class="patient-sidebar">
+        <div class="sidebar-title">
+          <h2>Dossiers patients</h2>
+          <button id="add-patient" class="primary compact" type="button">Nouveau patient</button>
+        </div>
+        <label class="search-box">
+          <span class="sr-only">Rechercher un patient</span>
+          <input id="patient-search" type="search" placeholder="Rechercher un patient" autocomplete="off">
+        </label>
+        <ul id="patient-list" class="patient-list" aria-label="Liste des patients"></ul>
+      </aside>
+
+      <main class="doctor-main">
+        <section id="doctor-home-screen" class="doctor-welcome">
+          <img src="Logo.png" alt="">
+          <h1>Bienvenue</h1>
+          <p>Sélectionnez un dossier patient.</p>
+        </section>
+
+        <section id="patient-screen" class="patient-screen hidden">
+          <header class="patient-summary">
+            <div class="patient-title-row">
+              <div>
+                <span class="eyebrow">PATIENT</span>
+                <h1 id="patient-name"></h1>
+              </div>
+              <button id="edit-patient" class="outline" type="button">Modifier les informations</button>
+            </div>
+            <dl id="patient-details" class="details-grid"></dl>
+          </header>
+
+          <section id="patient-menu" class="patient-menu">
+            <button id="open-new-case" class="feature-card" type="button">
+              <span class="feature-icon" data-icon="clinical" aria-hidden="true"></span>
+              <strong>Nouveau cas clinique</strong>
+              <span>Lancer une nouvelle analyse.</span>
+            </button>
+            <button id="open-medical-folder" class="feature-card" type="button">
+              <span class="feature-icon" data-icon="folder" aria-hidden="true"></span>
+              <strong>Dossier médical</strong>
+              <span>Consulter les éléments enregistrés.</span>
+            </button>
+            <button id="open-report-history" class="feature-card" type="button">
+              <span class="feature-icon" data-icon="consultations" aria-hidden="true"></span>
+              <strong>Consultations précédentes</strong>
+              <span>Consulter les rapports par date.</span>
+            </button>
+          </section>
+
+          <section id="case-section" class="patient-subscreen hidden">
+            <button class="outline back-patient" type="button">← Retour au dossier</button>
+            <article class="surface case-card">
+              <div class="section-heading">
+                <div>
+                  <span class="eyebrow">ANALYSE</span>
+                  <h2>Nouveau cas clinique</h2>
+                </div>
+              </div>
+              <label class="field-label" for="case-text">Description clinique <span aria-hidden="true">*</span></label>
+              <textarea id="case-text" required aria-required="true"></textarea>
+              <label id="case-drop-zone" class="drop-zone" for="case-file-input">
+                <input id="case-file-input" type="file" multiple accept=".pdf,.docx,.txt,.md,.png,.jpg,.jpeg,.webp" hidden>
+                <span class="drop-icon" aria-hidden="true">⇧</span>
+                <strong>Déposer des documents</strong>
+                <span>ou cliquez pour les sélectionner</span>
+                <small id="case-file-status">Facultatif</small>
+              </label>
+              <div id="case-selected-files" class="selected-files"></div>
+              <p id="case-error" class="form-error hidden" role="alert"></p>
+              <div class="case-actions">
+                <span id="case-progress" class="inline-progress hidden"><i></i><span>Préparation des documents…</span></span>
+                <button id="launch-analysis" class="success" type="button">Lancer l'analyse clinique</button>
+              </div>
+            </article>
+
+            <article id="analysis-waiting" class="surface analysis-waiting hidden" aria-live="polite">
+              <div class="analysis-waiting-heading">
+                <div class="analysis-processing-symbol" aria-hidden="true">
+                  <span data-icon="clinical"></span>
+                  <i></i>
+                </div>
+                <div>
+                  <span class="eyebrow">ANALYSE EN COURS</span>
+                  <h2>Préparation du rapport</h2>
+                  <p>Le rapport s'affichera automatiquement dès sa réception.</p>
+                </div>
+              </div>
+              <div
+                id="analysis-progress-track"
+                class="analysis-progress-track"
+                role="progressbar"
+                aria-label="Progression simulée de l'analyse"
+                aria-valuemin="0"
+                aria-valuemax="100"
+                aria-valuenow="8"
+                aria-valuetext="Analyse en cours"
+              >
+                <span id="analysis-progress-fill"></span>
+              </div>
+              <div class="analysis-waiting-meta">
+                <span id="analysis-processing-status">Transmission du dossier clinique…</span>
+                <time id="analysis-processing-time">00:00</time>
+              </div>
+            </article>
+
+            <article id="pending-report" class="surface report-card hidden">
+              <div class="report-heading">
+                <div>
+                  <span class="eyebrow">RAPPORT REÇU</span>
+                  <h2>Rapport à vérifier</h2>
+                </div>
+              </div>
+              <div id="pending-report-text" class="report-text"></div>
+              <div class="report-actions">
+                <button id="retry-report" class="outline" type="button">Relancer l'analyse</button>
+                <button id="confirm-pending-report" class="success" type="button">Confirmer et enregistrer</button>
+              </div>
+            </article>
+          </section>
+
+          <section id="medical-folder-section" class="patient-subscreen hidden">
+            <button class="outline back-patient" type="button">← Retour au dossier</button>
+            <article class="surface">
+              <div class="section-heading">
+                <div>
+                  <span class="eyebrow">DOSSIER MÉDICAL</span>
+                  <h2>Éléments enregistrés</h2>
+                </div>
+                <button id="add-to-folder" class="success" type="button">Ajouter</button>
+              </div>
+              <div id="medical-folder-list" class="document-list"></div>
+            </article>
+          </section>
+
+          <section id="history-section" class="patient-subscreen hidden">
+            <button class="outline back-patient" type="button">← Retour au dossier</button>
+            <article class="surface report-browser">
+              <aside>
+                <span class="eyebrow">CONSULTATIONS</span>
+                <h2>Rapports enregistrés</h2>
+                <div id="history-report-list" class="report-list"></div>
+              </aside>
+              <section>
+                <div class="report-heading">
+                  <h2 id="history-report-date"></h2>
+                  <button id="download-report" class="outline compact hidden" type="button">Télécharger en PDF</button>
+                </div>
+                <div id="history-report-text" class="report-text"></div>
+              </section>
+            </article>
+          </section>
+        </section>
+
+      </main>
+    </div>
+  </section>
+
+  <section id="admin-area" class="area hidden">
+    <header class="topbar">
+      <button class="back-choice" type="button" data-back-choice>← Changer d'espace</button>
+      <div class="brand-static"><img src="Logo.png" alt="MSOB AI"><span>Administration</span></div>
+      <span id="admin-name" class="actor-name"></span>
+    </header>
+    <main class="admin-main">
+      <nav class="admin-tabs" aria-label="Gestion administrative">
+        <button class="active" type="button" data-admin-tab="doctors" aria-selected="true">Médecins</button>
+        <button type="button" data-admin-tab="patients" aria-selected="false">Patients</button>
+        <button type="button" data-admin-tab="logs" aria-selected="false">Journal</button>
+        <button type="button" data-admin-tab="test" aria-selected="false">Test backend</button>
+      </nav>
+
+      <section id="admin-doctors-panel" class="admin-panel">
+        <div class="admin-heading">
+          <div>
+            <span class="eyebrow">ADMINISTRATION</span>
+            <h1>Médecins autorisés</h1>
+          </div>
+          <button id="add-doctor" class="success" type="button">Ajouter un médecin</button>
+        </div>
+        <ul id="doctor-list" class="admin-record-list"></ul>
+      </section>
+
+      <section id="admin-patients-panel" class="admin-panel hidden">
+        <div class="admin-heading">
+          <div>
+            <span class="eyebrow">ADMINISTRATION</span>
+            <h1>Dossiers patients</h1>
+          </div>
+          <button id="admin-add-patient" class="success" type="button">Nouveau patient</button>
+        </div>
+        <label class="admin-search">
+          <span class="sr-only">Rechercher un patient</span>
+          <input id="admin-patient-search" type="search" placeholder="Rechercher un patient" autocomplete="off">
+        </label>
+        <ul id="admin-patient-list" class="admin-record-list"></ul>
+      </section>
+
+      <section id="admin-logs-panel" class="admin-panel hidden">
+        <div class="admin-heading">
+          <div>
+            <span class="eyebrow">TRAÇABILITÉ</span>
+            <h1>Journal d'activité</h1>
+          </div>
+          <button id="refresh-admin-logs" class="outline" type="button">Actualiser</button>
+        </div>
+        <div class="admin-log-filters">
+          <label>
+            <span class="sr-only">Rechercher dans le journal</span>
+            <input id="admin-log-search" type="search" placeholder="Rechercher une personne ou une action" autocomplete="off">
+          </label>
+          <label>
+            <span class="sr-only">Filtrer par rôle</span>
+            <select id="admin-log-role">
+              <option value="">Tous les rôles</option>
+              <option value="doctor">Médecins</option>
+              <option value="admin">Administrateurs</option>
+            </select>
+          </label>
+        </div>
+        <div id="admin-log-list" class="admin-log-list" aria-live="polite"></div>
+      </section>
+
+      <section id="admin-test-panel" class="admin-panel hidden">
+        <article class="surface test-panel">
+          <span class="eyebrow">OUTIL TEMPORAIRE</span>
+          <h1>Test de liaison backend</h1>
+          <p>Ce test utilise uniquement le webhook de test d'Omar.</p>
+          <div class="test-row">
+            <input id="test-message" value="Test de connexion MSOB AI" aria-label="Message de test">
+            <button id="test-send" class="primary" type="button">Envoyer</button>
+            <button id="test-poll" class="outline" type="button">Relever la réponse</button>
+          </div>
+          <pre id="test-output" aria-live="polite"></pre>
+        </article>
+      </section>
+    </main>
+  </section>
+
+  <div id="unlock-modal" class="modal hidden">
+    <form id="unlock-form" class="modal-card modal-small">
+      <button type="button" class="close-modal" data-close-unlock aria-label="Fermer">×</button>
+      <h2 id="unlock-title"></h2>
+      <p>Saisissez votre identifiant autorisé.</p>
+      <label>Identifiant
+        <input id="unlock-id" required autocomplete="off" minlength="8" maxlength="10" pattern="[A-Za-z0-9]+">
+      </label>
+      <p id="unlock-error" class="form-error hidden" role="alert"></p>
+      <button class="success unlock-submit" type="submit">Accéder</button>
+    </form>
+  </div>
+
+  <div id="patient-modal" class="modal hidden">
+    <form id="patient-form" class="modal-card modal-wide">
+      <button type="button" class="close-modal" data-close-patient aria-label="Fermer">×</button>
+      <div id="patient-form-step">
+        <h2 id="patient-modal-title">Ajouter un dossier patient</h2>
+        <div class="editor-section">
+          <h3>Informations patient</h3>
+          <div class="form-grid">
+            <label>CIN<input name="cin" required maxlength="8" autocomplete="off"></label>
+            <label>Prénom<input name="prenom" required maxlength="80"></label>
+            <label>Nom<input name="nom" required maxlength="80"></label>
+            <label>Âge<input name="age" type="number" required min="0" max="130"></label>
+            <label>Genre<select name="genre" required></select></label>
+            <label>Handicap(s)<input name="handicap" required maxlength="250" placeholder="Aucun"></label>
+          </div>
+        </div>
+        <div class="editor-section">
+          <div class="editor-section-heading">
+            <h3>Dossier médical</h3>
+            <span>Facultatif</span>
+          </div>
+          <label>Texte
+            <textarea id="patient-folder-text" maxlength="20000" placeholder="Informations médicales connues…"></textarea>
+          </label>
+          <label id="patient-drop-zone" class="drop-zone compact-drop" for="patient-file-input">
+            <input id="patient-file-input" type="file" multiple hidden>
+            <span class="drop-icon" aria-hidden="true">⇧</span>
+            <strong>Ajouter des fichiers</strong>
+            <span>Ils seront conservés tels quels.</span>
+          </label>
+          <div id="patient-selected-files" class="selected-files"></div>
+          <div id="existing-folder-editor" class="existing-folder-editor hidden">
+            <h4>Éléments existants</h4>
+            <div id="existing-folder-list"></div>
+          </div>
+        </div>
+        <p id="patient-error" class="form-error hidden" role="alert"></p>
+        <div class="modal-actions">
+          <button type="button" class="outline" data-close-patient>Annuler</button>
+          <button class="success" type="submit">Continuer</button>
+        </div>
+      </div>
+
+      <div id="patient-review-step" class="hidden">
+        <h2>Vérifier le dossier</h2>
+        <div id="patient-review-content" class="review-content"></div>
+        <p id="patient-review-error" class="form-error hidden" role="alert"></p>
+        <div class="modal-actions">
+          <button id="patient-review-back" type="button" class="outline">Modifier</button>
+          <button id="patient-review-confirm" type="button" class="success">Confirmer</button>
+        </div>
+      </div>
+    </form>
+  </div>
+
+  <div id="folder-modal" class="modal hidden">
+    <form id="folder-form" class="modal-card">
+      <button type="button" class="close-modal" data-close-folder aria-label="Fermer">×</button>
+      <h2>Ajouter au dossier médical</h2>
+      <label>Texte
+        <textarea id="folder-text" maxlength="20000" placeholder="Informations médicales connues…"></textarea>
+      </label>
+      <label id="folder-drop-zone" class="drop-zone compact-drop" for="folder-file-input">
+        <input id="folder-file-input" type="file" multiple hidden>
+        <span class="drop-icon" aria-hidden="true">⇧</span>
+        <strong>Ajouter des fichiers</strong>
+        <span>Ils seront conservés tels quels.</span>
+      </label>
+      <div id="folder-selected-files" class="selected-files"></div>
+      <p id="folder-error" class="form-error hidden" role="alert"></p>
+      <div class="modal-actions">
+        <button type="button" class="outline" data-close-folder>Annuler</button>
+        <button class="success" type="submit">Continuer</button>
+      </div>
+    </form>
+  </div>
+
+  <div id="doctor-modal" class="modal hidden">
+    <form id="doctor-form" class="modal-card">
+      <button type="button" class="close-modal" data-close-doctor aria-label="Fermer">×</button>
+      <h2 id="doctor-modal-title"></h2>
+      <div class="form-grid">
+        <label>Prénom<input name="prenom" required maxlength="80"></label>
+        <label>Nom<input name="nom" required maxlength="80"></label>
+        <label class="full-width">ID médecin<input name="doctor_id" required minlength="8" maxlength="10" pattern="[A-Za-z0-9]+"></label>
+      </div>
+      <p id="doctor-error" class="form-error hidden" role="alert"></p>
+      <div class="modal-actions">
+        <button type="button" class="outline" data-close-doctor>Annuler</button>
+        <button class="success" type="submit">Continuer</button>
+      </div>
+    </form>
+  </div>
+
+  <div id="delete-patient-modal" class="modal hidden">
+    <form id="delete-patient-form" class="modal-card modal-small">
+      <button type="button" class="close-modal" data-close-delete-patient aria-label="Fermer">×</button>
+
+      <section id="delete-patient-warning-step">
+        <span class="danger-kicker">SUPPRESSION DÉFINITIVE</span>
+        <h2>Supprimer ce patient ?</h2>
+        <p>
+          Cette action supprimera <strong id="delete-patient-warning-name"></strong>, son dossier médical,
+          ses fichiers et toutes ses consultations. Elle est irréversible.
+        </p>
+        <div class="modal-actions">
+          <button type="button" class="outline" data-close-delete-patient>Annuler</button>
+          <button id="delete-patient-warning-next" type="button" class="danger">Continuer</button>
+        </div>
+      </section>
+
+      <section id="delete-patient-name-step" class="hidden">
+        <span class="danger-kicker">ÉTAPE 2 SUR 3</span>
+        <h2>Confirmer le patient</h2>
+        <p>Saisissez exactement <strong id="delete-patient-required-name"></strong>.</p>
+        <label>Nom complet
+          <input id="delete-patient-name-input" required autocomplete="off">
+        </label>
+        <p id="delete-patient-name-error" class="form-error hidden" role="alert"></p>
+        <div class="modal-actions">
+          <button id="delete-patient-name-back" type="button" class="outline">Retour</button>
+          <button id="delete-patient-name-next" type="button" class="danger">Continuer</button>
+        </div>
+      </section>
+
+      <section id="delete-patient-admin-step" class="hidden">
+        <span class="danger-kicker">ÉTAPE 3 SUR 3</span>
+        <h2>Confirmation administrateur</h2>
+        <p>Saisissez l'ID de l'administrateur actuellement connecté.</p>
+        <label>ID administrateur
+          <input id="delete-patient-admin-id" required autocomplete="off" minlength="8" maxlength="10" pattern="[A-Za-z0-9]+">
+        </label>
+        <p id="delete-patient-admin-error" class="form-error hidden" role="alert"></p>
+        <div class="modal-actions">
+          <button id="delete-patient-admin-back" type="button" class="outline">Retour</button>
+          <button class="danger" type="submit">Supprimer définitivement</button>
+        </div>
+      </section>
+    </form>
+  </div>
+
+  <div id="confirm-modal" class="modal hidden">
+    <form id="confirm-form" class="modal-card modal-small">
+      <h2 id="confirm-title">Confirmer</h2>
+      <p id="confirm-text"></p>
+      <label id="confirm-id-label">Identifiant
+        <input id="confirm-id" autocomplete="off" minlength="8" maxlength="10" pattern="[A-Za-z0-9]+">
+      </label>
+      <p id="confirm-error" class="form-error hidden" role="alert"></p>
+      <div class="modal-actions">
+        <button type="button" class="outline" data-close-confirm>Retour</button>
+        <button class="success" type="submit">Confirmer</button>
+      </div>
+    </form>
+  </div>
+
+  <div id="toast-region" class="toast-region" aria-live="polite" aria-atomic="true"></div>
+
+  <div id="doctor-mascot-container" class="mascot-draggable">
+    <div class="mascot-speech-bubble" id="mascot-bubble">Bonjour ! Cliquez sur moi si vous avez une question.</div>
+    <div class="mascot-body" id="mascot-body-element">
+      <svg id="mascot-svg" width="130" height="130" viewBox="0 0 130 130" xmlns="http://www.w3.org/2000/svg" aria-label="Assistant MSOB AI">
+        <g id="robot-all">
+          <ellipse id="robot-shadow" cx="65" cy="118" rx="26" ry="3.5" fill="rgba(16,35,63,.18)"/>
+          <path d="M42 76q0 30 23 30t23-30z" fill="#f8fafc" stroke="#cbd5e1" stroke-width="2"/>
+          <circle cx="65" cy="91" r="11" fill="#e2e8f0"/>
+          <circle cx="65" cy="91" r="6" fill="#0786c7" class="robot-core-pulse"/>
+          <g id="left-arm-idle"><path d="M38 80Q20 90 23 100" fill="none" stroke="#cbd5e1" stroke-width="11" stroke-linecap="round"/><path d="M38 80Q20 90 23 100" fill="none" stroke="#fff" stroke-width="7" stroke-linecap="round"/></g>
+          <g id="left-arm-waving"><path d="M40 79Q23 72 18 56" fill="none" stroke="#cbd5e1" stroke-width="11" stroke-linecap="round"/><path d="M40 79Q23 72 18 56" fill="none" stroke="#fff" stroke-width="7" stroke-linecap="round"/></g>
+          <g id="right-arm"><path d="M92 80q18 10 15 20" fill="none" stroke="#cbd5e1" stroke-width="11" stroke-linecap="round"/><path d="M92 80q18 10 15 20" fill="none" stroke="#fff" stroke-width="7" stroke-linecap="round"/></g>
+          <g id="robot-head">
+            <rect x="58" y="65" width="14" height="12" fill="#e2e8f0" rx="3" stroke="#cbd5e1"/>
+            <path d="M44 76q21 12 42 0" fill="none" stroke="#0786c7" stroke-width="2.5"/>
+            <line x1="65" y1="35" x2="65" y2="23" stroke="#94a3b8" stroke-width="3"/>
+            <circle cx="65" cy="20" r="6" fill="#00f2fe" class="robot-antenna-glow"/>
+            <rect x="25" y="26" width="80" height="52" rx="26" fill="#fff" stroke="#cbd5e1" stroke-width="2"/>
+            <rect x="33" y="34" width="64" height="36" rx="18" fill="#0f172a"/>
+            <text id="visor-timer" x="65" y="56" font-family="Outfit,Inter,sans-serif" font-size="14" font-weight="700" fill="#00f2fe" text-anchor="middle" dominant-baseline="middle" style="display:none;letter-spacing:.5px;filter:drop-shadow(0 0 2px #00f2fe);pointer-events:none"></text>
+            <g id="robot-heartbeat-pulse" aria-hidden="true">
+              <path class="robot-heartbeat-line" pathLength="100" d="M37 53h12l4-4 4 9 5-16 5 20 5-13 5 4h16"/>
+            </g>
+            <g id="robot-eyes">
+              <rect id="left-eye" x="45" y="45" width="8" height="14" rx="4" fill="#00f2fe"/>
+              <rect id="right-eye" x="77" y="45" width="8" height="14" rx="4" fill="#00f2fe"/>
+            </g>
+          </g>
+        </g>
+      </svg>
+    </div>
+  </div>
+
+  <aside id="assistant-panel" class="assistant-panel hidden" aria-label="Assistant MSOB AI" aria-hidden="true">
+    <header class="assistant-header">
+      <div class="assistant-title-group"><div class="assistant-status-dot"></div><h3>Assistant MSOB AI</h3></div>
+      <button id="close-assistant" class="close-assistant" type="button" aria-label="Fermer">×</button>
+    </header>
+    <main class="assistant-chat" id="assistant-chat-log">
+      <div class="assistant-msg assistant-bot">Bonjour ! Choisissez une question ci-dessous.</div>
+    </main>
+    <footer class="assistant-footer">
+      <div class="assistant-suggestions">
+        <button class="suggest-btn" type="button" data-q="analysis">Comment lancer une analyse ?</button>
+        <button class="suggest-btn" type="button" data-q="report">Que faire du rapport reçu ?</button>
+        <button class="suggest-btn" type="button" data-q="folder">Comment gérer le dossier médical ?</button>
+        <button class="suggest-btn" type="button" data-q="session">Quand la session expire-t-elle ?</button>
+      </div>
+    </footer>
+  </aside>
+
+  <script src="vendor/jspdf.umd.min.js"></script>
+  <script src="secure-app.js?v=23"></script>
+  <script src="mascot.js?v=7"></script>
+</body>
+</html>
