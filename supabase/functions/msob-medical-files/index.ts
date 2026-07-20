@@ -8,6 +8,9 @@ const MAX_TOTAL_BYTES = 100 * 1024 * 1024;
 const ALLOWED_ORIGINS = new Set([
   "http://localhost:5500",
   "http://127.0.0.1:5500",
+  "https://msob-ai.vercel.app",
+  "https://msob-ai-zeus100-projects.vercel.app",
+  "https://msob-ai-git-main-zeus100-projects.vercel.app",
 ]);
 
 const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
