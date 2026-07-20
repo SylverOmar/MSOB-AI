@@ -136,6 +136,34 @@ function formatDateTime(value) {
   }).format(date);
 }
 
+function formatReportDateTime(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat("fr-FR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
+
+function reportFileTimestamp(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "date-inconnue";
+  const parts = new Intl.DateTimeFormat("fr-FR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(date);
+  const byType = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${byType.year}-${byType.month}-${byType.day}_${byType.hour}h${byType.minute}`;
+}
+
 function formatBytes(value) {
   const bytes = Number(value || 0);
   if (!bytes) return "";
@@ -428,6 +456,7 @@ function icon(name) {
     clinical: '<path d="M6 3h12v18H6z"/><path d="M9 3V1h6v2M12 8v6M9 11h6M9 17h6"/>',
     folder: '<path d="M3 7h7l2 2h9v11H3z"/><path d="M14 12v5M11.5 14.5h5"/>',
     consultations: '<rect x="4" y="4" width="16" height="17" rx="2"/><path d="M9 4V2h6v2M8 9h8M8 13h8M8 17h5"/>',
+    activity: '<path d="M2 12h4l2.2-5 3.2 10 2.6-7 2 4h6"/>',
     text: '<path d="M4 4h16M4 9h16M4 14h11M4 19h9"/>',
     file: '<path d="M6 2h8l4 4v16H6z"/><path d="M14 2v5h5"/>',
     download: '<path d="M12 3v12M7 10l5 5 5-5M4 21h16"/>',
@@ -576,7 +605,7 @@ function updateClinicalWaitingUi() {
   $("analysis-progress-fill").style.width = `${progress.toFixed(2)}%`;
   $("analysis-progress-track").setAttribute("aria-valuenow", String(Math.round(progress)));
   const status = request.connectionInterrupted
-    ? "Connexion momentanément interrompue — nouvelle tentative…"
+    ? "Connexion momentanément interrompue : nouvelle tentative…"
     : clinicalProcessingStatus(elapsed);
   $("analysis-progress-track").setAttribute("aria-valuetext", status);
   $("analysis-processing-status").textContent = status;
@@ -914,13 +943,13 @@ function renderReportHistory(reportId = null) {
     ? reports.map((report) => `
       <button type="button" data-history-report="${report.id}" class="${report.id === selected?.id ? "active" : ""}">
         <strong>Consultation</strong>
-        <span>${escapeHtml(formatDate(report.date_generation))}</span>
+        <span>${escapeHtml(formatReportDateTime(report.date_generation))}</span>
       </button>
     `).join("")
     : '<p class="empty-state-line">Aucun rapport enregistré.</p>';
 
   $("history-report-date").textContent = selected
-    ? `Rapport du ${formatDate(selected.date_generation)}`
+    ? `Rapport du ${formatReportDateTime(selected.date_generation)}`
     : "Aucun rapport";
   $("history-report-text").textContent = selected
     ? cleanReportForDisplay(selected.rapport_text)
@@ -954,7 +983,7 @@ function downloadSelectedReportPdf() {
   y += 6;
   pdf.setFont("helvetica", "normal");
   pdf.setTextColor(80, 98, 120);
-  pdf.text(`Date : ${formatDate(report.date_generation)}`, margin, y);
+  pdf.text(`Date et heure : ${formatReportDateTime(report.date_generation)}`, margin, y);
   y += 12;
   pdf.setDrawColor(210, 225, 237);
   pdf.line(margin, y, pageWidth - margin, y);
@@ -973,7 +1002,7 @@ function downloadSelectedReportPdf() {
   }
 
   const safeName = `${patient.prenom}_${patient.nom}`.replace(/[^\p{L}\p{N}_-]+/gu, "_");
-  pdf.save(`rapport_${safeName}_${formatDate(report.date_generation).replace(/\//g, "-")}.pdf`);
+  pdf.save(`rapport_${safeName}_${reportFileTimestamp(report.date_generation)}.pdf`);
 }
 
 function updateSelectedFiles(kind) {
@@ -1735,6 +1764,16 @@ async function retryPendingReport() {
   await launchClinicalAnalysis({ draft, retry: true });
 }
 
+function requestRetryPendingReport() {
+  if (!state.pendingReportRaw || !currentPatient()) return;
+  openConfirm({
+    title: "Relancer l'analyse",
+    text: "Le rapport reçu sera écarté sans être enregistré. La même description clinique et les mêmes documents seront renvoyés.",
+    requireId: false,
+    action: retryPendingReport,
+  });
+}
+
 function openDoctorModal(doctor = null) {
   state.editingDoctor = doctor;
   const form = $("doctor-form");
@@ -2080,7 +2119,7 @@ function bindEvents() {
   $("add-to-folder").addEventListener("click", openFolderModal);
   $("launch-analysis").addEventListener("click", () => void launchClinicalAnalysis());
   $("confirm-pending-report").addEventListener("click", confirmPendingReport);
-  $("retry-report").addEventListener("click", () => void retryPendingReport());
+  $("retry-report").addEventListener("click", requestRetryPendingReport);
   $("download-report").addEventListener("click", downloadSelectedReportPdf);
   $("test-send").addEventListener("click", () => void sendBackendTest());
   $("test-poll").addEventListener("click", () => void pollTestMailbox());

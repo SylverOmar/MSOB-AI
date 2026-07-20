@@ -208,11 +208,11 @@ async function createPatientAsAdmin(
 }
 
 function patientAuditLabel(patient: Patient): string {
-  return `${patient.prenom} ${patient.nom} — ${patient.cin}`;
+  return `${patient.prenom} ${patient.nom} - ${patient.cin}`;
 }
 
 function doctorAuditLabel(doctor: Record<string, unknown>): string {
-  return `${String(doctor.prenom || "")} ${String(doctor.nom || "")} — ${String(doctor.doctor_id || "")}`.trim();
+  return `${String(doctor.prenom || "")} ${String(doctor.nom || "")} - ${String(doctor.doctor_id || "")}`.trim();
 }
 
 type Patient = {
