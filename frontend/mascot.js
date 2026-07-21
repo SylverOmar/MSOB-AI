@@ -238,7 +238,7 @@ window.addEventListener("DOMContentLoaded", () => {
   }, { passive: true });
   document.addEventListener("touchend", finishDrag);
 
-  const supportEmail = "omarchakircontact@gmail.com";
+  const supportEmail = "contact@msob.ai";
   const contexts = {
     landing: {
       intro: "Bonjour ! Je peux vous aider à choisir le bon espace.",
