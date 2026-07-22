@@ -26,7 +26,11 @@ window.addEventListener("DOMContentLoaded", () => {
   const countdownActive = () => {
     const session = window.MSOBSession;
     if (analysisActive()) return false;
-    if (!session || session.role !== "doctor" || !session.lastActivity) return false;
+    if (
+      !session
+      || !["doctor", "admin"].includes(session.role)
+      || !session.lastActivity
+    ) return false;
     const inactive = Date.now() - session.lastActivity;
     return inactive >= session.countdownDelayMs && inactive < session.idleLimitMs;
   };
@@ -71,7 +75,7 @@ window.addEventListener("DOMContentLoaded", () => {
       return;
     }
     if (
-      session?.role === "doctor"
+      ["doctor", "admin"].includes(session?.role)
       && session.lastActivity
       && Date.now() - session.lastActivity >= session.idleLimitMs
     ) {

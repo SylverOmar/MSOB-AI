@@ -2,6 +2,7 @@
 
 const CONFIG = {
   gatewayUrl: "https://inqnyoqqhtogrvgjyavo.supabase.co/rest/v1/rpc/msob_gateway",
+  touchSessionUrl: "https://inqnyoqqhtogrvgjyavo.supabase.co/rest/v1/rpc/msob_touch_session",
   publicConfigUrl: "https://inqnyoqqhtogrvgjyavo.supabase.co/rest/v1/rpc/msob_public_runtime_config",
   ownerGatewayUrl: "https://inqnyoqqhtogrvgjyavo.supabase.co/rest/v1/rpc/msob_owner_gateway",
   fileFunctionUrl: "https://inqnyoqqhtogrvgjyavo.supabase.co/functions/v1/msob-medical-files",
@@ -19,6 +20,7 @@ const CONFIG = {
   doctorSessionKey: "msob_doctor_session_v2",
   legacyClinicalRequestKey: "msob_active_clinical_request_v1",
   doctorIdleMs: 30 * 60 * 1000,
+  adminIdleMs: 5 * 60 * 1000,
   mascotCountdownDelayMs: 60 * 1000,
   clinicalPollIntervalMs: 3_000,
   clinicalReturnTimeoutMs: 30 * 60 * 1000,
@@ -79,6 +81,9 @@ const state = {
   doctorLastActivity: 0,
   doctorLastServerTouch: 0,
   doctorIdleTimer: null,
+  adminLastActivity: 0,
+  adminLastServerTouch: 0,
+  adminIdleTimer: null,
   turnstileWidgetId: null,
   turnstileToken: "",
   turnstileRenderGeneration: 0,
@@ -305,6 +310,10 @@ async function postRpc(url, body) {
     throw new Error(data.message || data.error || data.details || `Erreur ${response.status}`);
   }
   return data;
+}
+
+async function touchSession() {
+  return postRpc(CONFIG.touchSessionUrl, { p_token: state.token });
 }
 
 function applyRuntimeConfig(settings = {}) {
@@ -620,7 +629,7 @@ function setClinicalProcessing(processing, { refreshSession = true } = {}) {
     persistDoctorSession();
     void markDoctorActivity({ forceServer: true });
   }
-  scheduleDoctorIdleExpiry();
+  scheduleSessionIdleExpiry();
 }
 
 function applyDoctorAnalysisLock() {
@@ -743,6 +752,12 @@ function clearDoctorSession() {
   if (hadUnresolvedAnalysis) void clearAllClinicalQueues().catch(() => {});
 }
 
+function clearAdminSession() {
+  state.adminLastActivity = 0;
+  state.adminLastServerTouch = 0;
+  clearAdminIdleTimer();
+}
+
 function resetWorkspaceDrafts() {
   stopClinicalMonitoringTimers();
   disposeTurnstileWidget();
@@ -808,6 +823,7 @@ function resetWorkspaceDrafts() {
 
 function resetAuthenticatedSession() {
   clearDoctorSession();
+  clearAdminSession();
   resetWorkspaceDrafts();
   state.role = null;
   state.token = null;
@@ -833,6 +849,11 @@ function persistDoctorSession() {
 }
 
 async function expireDoctorSession(message = "") {
+  resetAuthenticatedSession();
+  if (message) toast(message, "warning");
+}
+
+async function expireAdminSession(message = "") {
   resetAuthenticatedSession();
   if (message) toast(message, "warning");
 }
@@ -887,12 +908,85 @@ async function markDoctorActivity({ forceServer = false } = {}) {
   if (!forceServer && now - state.doctorLastServerTouch < 60_000) return;
   state.doctorLastServerTouch = now;
   try {
-    await gateway("touch-session");
+    await touchSession();
   } catch (error) {
     state.doctorLastServerTouch = 0;
-    if (/session|expired|unauthor/i.test(String(error?.message))) {
+    if (/session|expir|unauthor/i.test(String(error?.message))) {
       await expireDoctorSession("Votre session a expiré.");
     }
+  }
+}
+
+function clearAdminIdleTimer() {
+  if (state.adminIdleTimer) clearTimeout(state.adminIdleTimer);
+  state.adminIdleTimer = null;
+}
+
+function scheduleAdminIdleExpiry() {
+  clearAdminIdleTimer();
+  if (state.role !== "admin" || !state.adminLastActivity) return;
+
+  const remaining = CONFIG.adminIdleMs - (Date.now() - state.adminLastActivity);
+  if (remaining <= 0) {
+    void expireAdminSession("Votre session a expiré après 5 minutes d'inactivité.");
+    return;
+  }
+
+  state.adminIdleTimer = setTimeout(() => {
+    state.adminIdleTimer = null;
+    if (
+      state.role === "admin"
+      && Date.now() - state.adminLastActivity >= CONFIG.adminIdleMs
+    ) {
+      void expireAdminSession("Votre session a expiré après 5 minutes d'inactivité.");
+    } else {
+      scheduleAdminIdleExpiry();
+    }
+  }, remaining);
+}
+
+async function markAdminActivity({ forceServer = false } = {}) {
+  if (state.role !== "admin") return;
+  const now = Date.now();
+  if (
+    state.adminLastActivity
+    && now - state.adminLastActivity >= CONFIG.adminIdleMs
+  ) {
+    await expireAdminSession("Votre session a expiré après 5 minutes d'inactivité.");
+    return;
+  }
+  state.adminLastActivity = now;
+  scheduleAdminIdleExpiry();
+  if (!forceServer && now - state.adminLastServerTouch < 60_000) return;
+  state.adminLastServerTouch = now;
+  try {
+    await touchSession();
+  } catch (error) {
+    state.adminLastServerTouch = 0;
+    if (/session|expir|unauthor/i.test(String(error?.message))) {
+      await expireAdminSession("Votre session a expiré.");
+    }
+  }
+}
+
+function scheduleSessionIdleExpiry() {
+  if (state.role === "doctor") {
+    scheduleDoctorIdleExpiry();
+    return;
+  }
+  if (state.role === "admin") {
+    scheduleAdminIdleExpiry();
+    return;
+  }
+  clearDoctorIdleTimer();
+  clearAdminIdleTimer();
+}
+
+async function markSessionActivity(options = {}) {
+  if (state.role === "doctor") {
+    await markDoctorActivity(options);
+  } else if (state.role === "admin") {
+    await markAdminActivity(options);
   }
 }
 
@@ -901,10 +995,12 @@ window.MSOBSession = {
     return state.role;
   },
   get lastActivity() {
-    return state.doctorLastActivity;
+    if (state.role === "doctor") return state.doctorLastActivity;
+    if (state.role === "admin") return state.adminLastActivity;
+    return 0;
   },
   get idleLimitMs() {
-    return CONFIG.doctorIdleMs;
+    return state.role === "admin" ? CONFIG.adminIdleMs : CONFIG.doctorIdleMs;
   },
   get countdownDelayMs() {
     return CONFIG.mascotCountdownDelayMs;
@@ -913,7 +1009,7 @@ window.MSOBSession = {
     return state.role === "doctor" && analysisIsProcessing();
   },
   markActivity() {
-    void markDoctorActivity();
+    void markSessionActivity();
   },
   expireIfIdle() {
     if (
@@ -923,6 +1019,14 @@ window.MSOBSession = {
       && Date.now() - state.doctorLastActivity >= CONFIG.doctorIdleMs
     ) {
       void expireDoctorSession("Votre session a expiré après 30 minutes d'inactivité.");
+      return;
+    }
+    if (
+      state.role === "admin"
+      && state.adminLastActivity
+      && Date.now() - state.adminLastActivity >= CONFIG.adminIdleMs
+    ) {
+      void expireAdminSession("Votre session a expiré après 5 minutes d'inactivité.");
     }
   },
 };
@@ -941,7 +1045,7 @@ async function restoreDoctorSession() {
     state.actor = saved.actor;
     state.doctorLastActivity = Date.now();
     persistDoctorSession();
-    await gateway("touch-session");
+    await touchSession();
     state.doctorLastServerTouch = Date.now();
     await loadDoctorData();
     scheduleDoctorIdleExpiry();
@@ -1075,11 +1179,15 @@ async function submitUnlock(event) {
     hide("unlock-modal");
     disposeTurnstileWidget();
     if (state.role === "doctor") {
+      clearAdminSession();
       state.doctorLastActivity = Date.now();
       persistDoctorSession();
+      await markDoctorActivity({ forceServer: true });
       await loadDoctorData();
     } else {
       clearDoctorSession();
+      state.adminLastActivity = Date.now();
+      await markAdminActivity({ forceServer: true });
       await loadAdminData();
     }
   } catch (error) {
@@ -2785,9 +2893,9 @@ function bindEvents() {
 
   const activity = (event) => {
     if (event.target?.closest?.("#doctor-mascot-container")) return;
-    void markDoctorActivity();
+    void markSessionActivity();
   };
-  for (const eventName of ["pointerdown", "keydown", "touchstart"]) {
+  for (const eventName of ["pointerdown", "keydown", "touchstart", "wheel"]) {
     document.addEventListener(eventName, activity, { passive: true });
   }
 
@@ -2807,18 +2915,17 @@ async function initialize() {
   await loadPublicRuntimeConfig();
   $("test-output").textContent = "";
   setInterval(() => {
-    if (state.role !== "doctor") return;
-    if (analysisIsProcessing()) {
+    if (state.role === "doctor" && analysisIsProcessing()) {
       // Keep both the local timestamp and the server session fresh while the
       // backend is processing. The 30-minute idle window restarts afterward.
       void markDoctorActivity();
       return;
     }
-    scheduleDoctorIdleExpiry();
+    scheduleSessionIdleExpiry();
   }, 15_000);
 
   document.addEventListener("visibilitychange", () => {
-    if (!document.hidden) scheduleDoctorIdleExpiry();
+    if (!document.hidden) scheduleSessionIdleExpiry();
   });
 
   const restored = await restoreDoctorSession();
