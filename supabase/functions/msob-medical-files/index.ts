@@ -3,8 +3,12 @@ import { createClient } from "npm:@supabase/supabase-js@2";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const BUCKET = "medical-folder";
+const QUEUE_BUCKET = "clinical-analysis-queue";
 const MAX_FILE_BYTES = 25 * 1024 * 1024;
 const MAX_TOTAL_BYTES = 100 * 1024 * 1024;
+const TURNSTILE_VERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify";
+const TURNSTILE_TEST_SECRET = "1x0000000000000000000000000000000AA";
+const TURNSTILE_ACTION = "msob-login";
 const ALLOWED_ORIGINS = new Set([
   "http://localhost:5500",
   "http://127.0.0.1:5500",
@@ -12,11 +16,16 @@ const ALLOWED_ORIGINS = new Set([
   "https://msob-ai-zeus100-projects.vercel.app",
   "https://msob-ai-git-main-zeus100-projects.vercel.app",
 ]);
+const LOCAL_ORIGINS = new Set([
+  "http://localhost:5500",
+  "http://127.0.0.1:5500",
+]);
 
 const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
   auth: { persistSession: false, autoRefreshToken: false },
 });
 let bucketReady: Promise<void> | null = null;
+let queueBucketReady: Promise<void> | null = null;
 
 class HttpError extends Error {
   status: number;
@@ -108,6 +117,55 @@ function ensurePrivateBucket(): Promise<void> {
     throw error;
   });
   return bucketReady;
+}
+
+function ensureQueueBucket(): Promise<void> {
+  if (queueBucketReady) return queueBucketReady;
+  queueBucketReady = (async () => {
+    const { data: buckets, error: listError } = await admin.storage.listBuckets();
+    if (listError) throw new HttpError(500, "Le stockage temporaire n'est pas disponible.");
+    const existing = (buckets || []).find((bucket) => bucket.id === QUEUE_BUCKET);
+    if (!existing) {
+      const { error } = await admin.storage.createBucket(QUEUE_BUCKET, {
+        public: false,
+        fileSizeLimit: MAX_FILE_BYTES,
+      });
+      if (error) throw new HttpError(500, "Le stockage temporaire n'a pas pu être créé.");
+      return;
+    }
+    if (existing.public || existing.file_size_limit !== MAX_FILE_BYTES) {
+      const { error } = await admin.storage.updateBucket(QUEUE_BUCKET, {
+        public: false,
+        fileSizeLimit: MAX_FILE_BYTES,
+      });
+      if (error) throw new HttpError(500, "Le stockage temporaire n'a pas pu être sécurisé.");
+    }
+  })().catch((error) => {
+    queueBucketReady = null;
+    throw error;
+  });
+  return queueBucketReady;
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.map(String).filter(Boolean) : [];
+}
+
+async function removeQueueStorage(paths: string[]): Promise<void> {
+  const uniquePaths = [...new Set(paths.filter(Boolean))];
+  if (!uniquePaths.length) return;
+  await ensureQueueBucket();
+  const { error } = await admin.storage.from(QUEUE_BUCKET).remove(uniquePaths);
+  if (error) console.error("Temporary queue cleanup failed", error.message);
+}
+
+async function pruneExpiredQueues(): Promise<void> {
+  const { data, error } = await admin.rpc("msob_queue_prune");
+  if (error) {
+    console.error("Temporary queue pruning failed", error.message);
+    return;
+  }
+  await removeQueueStorage(stringArray((data as Record<string, unknown> | null)?.storage_paths));
 }
 
 async function callGateway(
@@ -908,6 +966,289 @@ async function manageDoctor(request: Request, form: FormData): Promise<Response>
   throw new HttpError(400, "Opération médecin invalide.");
 }
 
+async function queueClinicalFile(request: Request, form: FormData): Promise<Response> {
+  const token = requiredHeader(request, "x-msob-session");
+  const requestId = String(form.get("request_id") || "").trim();
+  const source = String(form.get("source") || "case").trim().toLowerCase();
+  const uploaded = form.get("file");
+  if (!/^[A-Za-z0-9_-]{8,80}$/.test(requestId)) {
+    throw new HttpError(400, "Référence d'analyse invalide.");
+  }
+  if (!new Set(["case", "medical-folder"]).has(source)) {
+    throw new HttpError(400, "Origine de document invalide.");
+  }
+  if (!(uploaded instanceof File) || !uploaded.size) {
+    throw new HttpError(400, "Fichier requis.");
+  }
+  if (uploaded.size > MAX_FILE_BYTES) {
+    throw new HttpError(413, `${safeOriginalName(uploaded.name)} dépasse la limite de 25 Mo.`);
+  }
+
+  await pruneExpiredQueues();
+  await ensureQueueBucket();
+  const originalName = safeOriginalName(uploaded.name);
+  const storagePath = `${requestId}/${crypto.randomUUID()}${storageExtension(originalName)}`;
+  const { error: uploadError } = await admin.storage.from(QUEUE_BUCKET).upload(storagePath, uploaded, {
+    contentType: uploaded.type || "application/octet-stream",
+    cacheControl: "0",
+    upsert: false,
+  });
+  if (uploadError) throw new HttpError(500, `Le fichier ${originalName} n'a pas pu être préparé.`);
+
+  const { data, error } = await admin.rpc("msob_queue_add", {
+    p_token: token,
+    p_request_id: requestId,
+    p_original_name: originalName,
+    p_source: source,
+    p_content_type: uploaded.type || "application/octet-stream",
+    p_size_bytes: uploaded.size,
+    p_storage_path: storagePath,
+  });
+  if (error) {
+    await admin.storage.from(QUEUE_BUCKET).remove([storagePath]);
+    throw new HttpError(400, error.message || "Le fichier n'a pas pu être mis en attente.");
+  }
+
+  return json(request, {
+    status: "queued",
+    request_id: requestId,
+    file_id: data,
+    file: { name: originalName, source, size: uploaded.size },
+  }, 201);
+}
+
+async function clearClinicalQueue(request: Request, form: FormData): Promise<Response> {
+  const token = requiredHeader(request, "x-msob-session");
+  const requestId = String(form.get("request_id") || "").trim() || null;
+  const { data, error } = await admin.rpc("msob_queue_clear", {
+    p_token: token,
+    p_request_id: requestId,
+  });
+  if (error) throw new HttpError(400, error.message || "La file temporaire n'a pas pu être vidée.");
+  const paths = stringArray((data as Record<string, unknown> | null)?.storage_paths);
+  await removeQueueStorage(paths);
+  return json(request, { status: "cleared", cleared_files: paths.length });
+}
+
+async function clinicalQueueStatus(request: Request, form: FormData): Promise<Response> {
+  const token = requiredHeader(request, "x-msob-session");
+  const requestId = String(form.get("request_id") || "").trim();
+  const { data, error } = await admin.rpc("msob_queue_status", {
+    p_token: token,
+    p_request_id: requestId,
+  });
+  if (error) throw new HttpError(400, error.message || "La file temporaire n'a pas pu être lue.");
+  return json(request, data || { request_id: requestId, count: 0, files: [] });
+}
+
+async function claimClinicalQueue(request: Request, body: Record<string, unknown>): Promise<Response> {
+  const requestId = String(body.request_id || "").trim();
+  if (!/^[A-Za-z0-9_-]{8,80}$/.test(requestId)) {
+    throw new HttpError(400, "Référence d'analyse invalide.");
+  }
+  await pruneExpiredQueues();
+  const { data, error } = await admin.rpc("msob_queue_claim", { p_request_id: requestId });
+  if (error) throw new HttpError(404, error.message || "File clinique temporaire introuvable.");
+  const claim = (data || {}) as Record<string, unknown>;
+  const files = Array.isArray(claim.files) ? claim.files as Record<string, unknown>[] : [];
+  await ensureQueueBucket();
+  const signedFiles: Record<string, unknown>[] = [];
+  for (const file of files) {
+    const storagePath = String(file.storage_path || "");
+    const { data: signed, error: signError } = await admin.storage
+      .from(QUEUE_BUCKET)
+      .createSignedUrl(storagePath, 300);
+    if (signError || !signed?.signedUrl) {
+      throw new HttpError(500, `Le fichier temporaire ${safeOriginalName(file.name)} n'est pas accessible.`);
+    }
+    const { storage_path: _storagePath, ...safeFile } = file;
+    signedFiles.push({ ...safeFile, signed_url: signed.signedUrl });
+  }
+  return json(request, {
+    status: "claimed",
+    request_id: requestId,
+    claim_token: claim.claim_token,
+    files: signedFiles,
+  });
+}
+
+async function serviceRuntimeConfig(): Promise<Record<string, unknown>> {
+  const { data, error } = await admin.rpc("msob_service_runtime_config");
+  if (error) throw new HttpError(500, "La configuration du service n'est pas disponible.");
+  return (data || {}) as Record<string, unknown>;
+}
+
+function requireAllowedBrowserOrigin(request: Request): string {
+  const origin = request.headers.get("origin") || "";
+  if (!ALLOWED_ORIGINS.has(origin)) {
+    throw new HttpError(403, "Origine non autorisée.");
+  }
+  return origin;
+}
+
+async function verifyTurnstile(request: Request, token: string): Promise<void> {
+  const origin = requireAllowedBrowserOrigin(request);
+  const localRequest = LOCAL_ORIGINS.has(origin);
+  const config = await serviceRuntimeConfig();
+  const siteKey = String(config.turnstile_site_key || "").trim();
+  const secret = localRequest
+    ? TURNSTILE_TEST_SECRET
+    : String(config.turnstile_secret_key || "").trim();
+
+  if (!localRequest && !siteKey) return;
+  if (!token || token.length > 2048) {
+    throw new HttpError(403, "La vérification anti-robot est requise.");
+  }
+  if (!secret) {
+    throw new HttpError(503, "La protection anti-robot n'est pas entièrement configurée.");
+  }
+
+  const form = new URLSearchParams({ secret, response: token });
+  const remoteIp = (
+    request.headers.get("cf-connecting-ip")
+    || request.headers.get("x-forwarded-for")?.split(",")[0]
+    || ""
+  ).trim();
+  if (remoteIp) form.set("remoteip", remoteIp);
+
+  let response: Response;
+  try {
+    response = await fetch(TURNSTILE_VERIFY_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: form,
+    });
+  } catch {
+    throw new HttpError(503, "Le service de vérification anti-robot est indisponible.");
+  }
+
+  const result = await response.json().catch(() => ({})) as Record<string, unknown>;
+  if (!response.ok || result.success !== true) {
+    throw new HttpError(403, "La vérification anti-robot a échoué.");
+  }
+  if (result.action && result.action !== TURNSTILE_ACTION) {
+    throw new HttpError(403, "La vérification anti-robot ne correspond pas à cette connexion.");
+  }
+  if (!localRequest && result.hostname) {
+    const expectedHostname = new URL(origin).hostname;
+    if (String(result.hostname).toLowerCase() !== expectedHostname.toLowerCase()) {
+      throw new HttpError(403, "La vérification anti-robot provient d'un site différent.");
+    }
+  }
+}
+
+async function unlockApplication(request: Request, body: Record<string, unknown>): Promise<Response> {
+  const role = String(body.role || "").trim().toLowerCase();
+  const id = String(body.id || "").trim().toLowerCase();
+  const turnstileToken = String(body.turnstile_token || "").trim();
+  if (role !== "doctor" && role !== "admin") {
+    throw new HttpError(400, "Espace de connexion invalide.");
+  }
+  if (!/^(?=.*[a-z])(?=.*\d)[a-z\d]{8,10}$/i.test(id)) {
+    throw new HttpError(400, "Identifiant invalide.");
+  }
+  await verifyTurnstile(request, turnstileToken);
+  const data = await callGateway("unlock", null, { role, id });
+  return json(request, data);
+}
+
+async function callGroqVision(
+  apiKey: string,
+  model: string,
+  mimeType: string,
+  base64Data: string,
+  prompt: string,
+): Promise<string> {
+  const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model,
+      temperature: 0.1,
+      max_tokens: 4096,
+      messages: [{
+        role: "user",
+        content: [
+          { type: "text", text: prompt },
+          { type: "image_url", image_url: { url: `data:${mimeType};base64,${base64Data}` } },
+        ],
+      }],
+    }),
+  });
+  const raw = await response.text();
+  let payload: Record<string, unknown> = {};
+  try { payload = raw ? JSON.parse(raw) : {}; } catch { payload = { message: raw }; }
+  if (!response.ok) throw new Error(String(payload.error || payload.message || `Groq ${response.status}`));
+  const choices = Array.isArray(payload.choices) ? payload.choices as Record<string, unknown>[] : [];
+  const message = (choices[0]?.message || {}) as Record<string, unknown>;
+  return String(message.content || "");
+}
+
+async function extractClinicalImage(request: Request, body: Record<string, unknown>): Promise<Response> {
+  const requestId = String(body.request_id || "").trim();
+  const claimToken = String(body.claim_token || "").trim();
+  const mimeType = String(body.mime_type || "image/png").trim();
+  const base64Data = String(body.image_base64 || "").replace(/^data:[^;]+;base64,/, "");
+  const prompt = String(body.prompt || "").trim() || (
+    "Extract the document's clinical text and observations accurately. "
+    + "Do not diagnose, infer missing facts, or add recommendations."
+  );
+  if (!base64Data || base64Data.length > 20_000_000) {
+    throw new HttpError(413, "Image temporaire absente ou trop volumineuse.");
+  }
+  const { data: valid, error } = await admin.rpc("msob_queue_verify_claim", {
+    p_request_id: requestId,
+    p_claim_token: claimToken,
+  });
+  if (error || valid !== true) throw new HttpError(403, "Accès temporaire invalide.");
+
+  const config = await serviceRuntimeConfig();
+  const model = String(config.groq_vision_model || "meta-llama/llama-4-scout-17b-16e-instruct");
+  const keys = [config.groq_primary_key, config.groq_fallback_key]
+    .map((value) => String(value || "").trim())
+    .filter((value, index, values) => value && values.indexOf(value) === index);
+  if (!keys.length) throw new HttpError(503, "Aucune clé Groq n'est configurée pour l'extraction d'images.");
+
+  let lastError = "";
+  for (const key of keys) {
+    try {
+      const text = await callGroqVision(key, model, mimeType, base64Data, prompt);
+      return json(request, { status: "ok", text });
+    } catch (providerError) {
+      lastError = providerError instanceof Error ? providerError.message : "Erreur Groq";
+      console.error("Groq vision provider failed", lastError);
+    }
+  }
+  throw new HttpError(502, `L'extraction d'image a échoué: ${lastError}`);
+}
+
+async function finalizeClinicalQueue(request: Request, body: Record<string, unknown>): Promise<Response> {
+  const requestId = String(body.request_id || "").trim();
+  const claimToken = String(body.claim_token || "").trim();
+  const { data, error } = await admin.rpc("msob_queue_finalize", {
+    p_request_id: requestId,
+    p_claim_token: claimToken,
+  });
+  if (error) throw new HttpError(403, error.message || "La file temporaire n'a pas pu être finalisée.");
+  const paths = stringArray((data as Record<string, unknown> | null)?.storage_paths);
+  await removeQueueStorage(paths);
+  return json(request, { status: "finalized", removed_files: paths.length });
+}
+
+async function hostedMcpHealth(request: Request): Promise<Response> {
+  const config = await serviceRuntimeConfig();
+  return json(request, {
+    status: "ok",
+    service: "msob-hosted-mcp-broker",
+    primary_groq_configured: Boolean(String(config.groq_primary_key || "")),
+    fallback_groq_configured: Boolean(String(config.groq_fallback_key || "")),
+    model: config.groq_vision_model,
+  });
+}
+
 async function downloadFile(request: Request): Promise<Response> {
   const token = requiredHeader(request, "x-msob-session");
   const documentId = new URL(request.url).searchParams.get("document_id") || "";
@@ -937,15 +1278,32 @@ async function downloadFile(request: Request): Promise<Response> {
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: corsHeaders(request) });
   try {
+    const requestUrl = new URL(request.url);
+    if (request.method === "GET" && requestUrl.searchParams.get("operation") === "mcp-health") {
+      return await hostedMcpHealth(request);
+    }
     if (request.method === "GET") return await downloadFile(request);
     if (request.method !== "POST") throw new HttpError(405, "Méthode non autorisée.");
 
     const contentType = request.headers.get("content-type") || "";
+    if (contentType.includes("application/json")) {
+      const body = await request.json() as Record<string, unknown>;
+      const operation = String(body.operation || "");
+      if (operation === "unlock") return await unlockApplication(request, body);
+      if (operation === "mcp-claim") return await claimClinicalQueue(request, body);
+      if (operation === "mcp-vision") return await extractClinicalImage(request, body);
+      if (operation === "mcp-finalize") return await finalizeClinicalQueue(request, body);
+      throw new HttpError(400, "Opération MCP inconnue.");
+    }
     if (!contentType.includes("multipart/form-data")) {
       throw new HttpError(415, "Le formulaire de fichier est invalide.");
     }
+
     const form = await request.formData();
     const operation = String(form.get("operation") || "");
+    if (operation === "queue-upload") return await queueClinicalFile(request, form);
+    if (operation === "queue-clear") return await clearClinicalQueue(request, form);
+    if (operation === "queue-status") return await clinicalQueueStatus(request, form);
     if (operation === "save-patient") return await savePatient(request, form);
     if (operation === "add-folder") return await addToFolder(request, form);
     if (operation === "save-report") return await saveReport(request, form);

@@ -44,10 +44,21 @@ EXTRACTABLE_EXTENSIONS = {
     ".webp",
 }
 ALLOWED_SOURCES = {"case", "medical-folder"}
-LOCAL_ORIGINS = [
+DEFAULT_BROWSER_ORIGINS = [
     "http://localhost:5500",
     "http://127.0.0.1:5500",
+    "https://msob-ai.vercel.app",
 ]
+BROWSER_ORIGINS = sorted(
+    {
+        *DEFAULT_BROWSER_ORIGINS,
+        *(
+            origin.strip()
+            for origin in os.getenv("MCP_BROWSER_ORIGINS", "").split(",")
+            if origin.strip()
+        ),
+    }
+)
 
 mcp = FastMCP(
     "MSOB-Clinical-Documents",
@@ -557,6 +568,8 @@ async def health(_request):
             "status": "ok",
             "service": "msob-clinical-documents",
             "queued_requests": queue_count,
+            "vercel_local_access": True,
+            "vercel_private_network": "cors-v1",
         }
     )
 
@@ -613,10 +626,11 @@ def build_app():
     app.add_middleware(ProtectLocalQueueRoutes)
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=LOCAL_ORIGINS,
+        allow_origins=BROWSER_ORIGINS,
         allow_credentials=False,
         allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
         allow_headers=["*"],
+        allow_private_network=True,
     )
     app.add_route("/health", health, methods=["GET"])
     app.add_route("/upload", upload_file, methods=["POST"])

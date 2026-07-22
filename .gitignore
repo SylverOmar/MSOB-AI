@@ -32,5 +32,7 @@ __pycache__/
 mcp_ocr_server/test_ocr_server.py
 mcp_ocr_server/launch.bat
 mcp_ocr_server/launch.ps1
+mcp_ocr_server/runtime/
+mcp_ocr_server/temp_hold/
 frontend/vendor/*.map
 desktop.ini

@@ -4,12 +4,20 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light">
+  <meta name="theme-color" content="#eef8ff">
+  <meta name="description" content="Plateforme sécurisée de gestion des dossiers patients et d'avis clinique MSOB AI.">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="MSOB AI">
   <title>MSOB AI</title>
   <link rel="icon" type="image/png" href="favicon.png">
+  <link rel="apple-touch-icon" href="pwa-icon-192.png">
+  <link rel="manifest" href="manifest.webmanifest">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="secure.css?v=27">
+  <link rel="stylesheet" href="secure.css?v=28">
 </head>
 <body>
   <div id="app-loading" class="app-loading" aria-live="polite">
@@ -230,7 +238,7 @@
   <section id="admin-area" class="area hidden">
     <header class="topbar">
       <button class="back-choice" type="button" data-back-choice>← Changer d'espace</button>
-      <div class="brand-static"><img src="Logo.png" alt="MSOB AI"><span>Administration</span></div>
+      <div class="brand-static"><img id="admin-secret-trigger" src="Logo.png" alt="MSOB AI"><span>Administration</span></div>
       <span id="admin-name" class="actor-name"></span>
     </header>
     <main class="admin-main">
@@ -239,6 +247,7 @@
         <button type="button" data-admin-tab="patients" aria-selected="false">Patients</button>
         <button type="button" data-admin-tab="logs" aria-selected="false">Journal</button>
         <button type="button" data-admin-tab="test" aria-selected="false">Test backend</button>
+        <button class="owner-only hidden" type="button" data-admin-tab="admins" aria-selected="false">Administrateurs</button>
       </nav>
 
       <section id="admin-doctors-panel" class="admin-panel">
@@ -305,6 +314,68 @@
           <pre id="test-output" aria-live="polite"></pre>
         </article>
       </section>
+
+      <section id="admin-admins-panel" class="admin-panel hidden owner-only">
+        <div class="admin-heading">
+          <div>
+            <span class="eyebrow">ADMINISTRATION</span>
+            <h1>Administrateurs autorisés</h1>
+          </div>
+          <button id="add-admin" class="success" type="button">Ajouter un administrateur</button>
+        </div>
+        <ul id="admin-list" class="admin-record-list"></ul>
+      </section>
+
+      <section id="admin-settings-panel" class="admin-panel hidden owner-only">
+        <div class="admin-heading">
+          <div>
+            <span class="eyebrow">CONFIGURATION</span>
+            <h1>Services et API</h1>
+          </div>
+          <button id="close-runtime-settings" class="outline" type="button">← Retour</button>
+        </div>
+        <form id="runtime-settings-form" class="settings-form">
+          <div class="settings-grid">
+            <label>Adresse d'assistance
+              <input name="support_email" type="email" required autocomplete="off">
+            </label>
+            <label>Modèle Groq vision
+              <input name="groq_vision_model" required autocomplete="off">
+            </label>
+            <label class="full-width">Webhook des analyses cliniques
+              <input name="production_webhook_url" type="url" required autocomplete="off">
+            </label>
+            <label class="full-width">Webhook de test
+              <input name="test_webhook_url" type="url" required autocomplete="off">
+            </label>
+            <label class="full-width">Boîte de réception des rapports
+              <input name="test_mailbox_url" type="url" required autocomplete="off">
+            </label>
+            <label class="full-width">Adresse MCP hébergée
+              <input name="hosted_mcp_url" type="url" required autocomplete="off">
+            </label>
+            <label class="full-width">Service de file temporaire MCP
+              <input name="hosted_mcp_queue_url" type="url" required autocomplete="off">
+            </label>
+          </div>
+
+          <div class="secret-settings">
+            <label>Clé Groq principale
+              <input name="groq_primary_key" type="password" autocomplete="new-password" placeholder="Laisser vide pour conserver la clé actuelle">
+              <small id="groq-primary-status"></small>
+            </label>
+            <label>Clé Groq de secours
+              <input name="groq_fallback_key" type="password" autocomplete="new-password" placeholder="Laisser vide pour conserver la clé actuelle">
+              <small id="groq-fallback-status"></small>
+            </label>
+          </div>
+          <p class="settings-note">Les clés existantes ne sont jamais affichées. Saisir une nouvelle valeur remplace la clé correspondante.</p>
+          <p id="runtime-settings-error" class="form-error hidden" role="alert"></p>
+          <div class="settings-actions">
+            <button id="save-runtime-settings" class="success" type="submit">Enregistrer la configuration</button>
+          </div>
+        </form>
+      </section>
     </main>
   </section>
 
@@ -316,6 +387,9 @@
       <label>Identifiant
         <input id="unlock-id" required autocomplete="off" minlength="8" maxlength="10" pattern="[A-Za-z0-9]+">
       </label>
+      <div id="turnstile-field" class="turnstile-field hidden">
+        <div id="turnstile-widget" aria-label="Vérification anti-robot"></div>
+      </div>
       <p id="unlock-error" class="form-error hidden" role="alert"></p>
       <button class="success unlock-submit" type="submit">Accéder</button>
     </form>
@@ -410,6 +484,23 @@
       <p id="doctor-error" class="form-error hidden" role="alert"></p>
       <div class="modal-actions">
         <button type="button" class="outline" data-close-doctor>Annuler</button>
+        <button class="success" type="submit">Continuer</button>
+      </div>
+    </form>
+  </div>
+
+  <div id="admin-editor-modal" class="modal hidden">
+    <form id="admin-editor-form" class="modal-card">
+      <button type="button" class="close-modal" data-close-admin-editor aria-label="Fermer">×</button>
+      <h2 id="admin-editor-title">Ajouter un administrateur</h2>
+      <div class="form-grid">
+        <label>Prénom<input name="prenom" required maxlength="80"></label>
+        <label>Nom<input name="nom" required maxlength="80"></label>
+        <label class="full-width">ID administrateur<input name="admin_id" required minlength="8" maxlength="10" pattern="[A-Za-z0-9]+" autocomplete="off"></label>
+      </div>
+      <p id="admin-editor-error" class="form-error hidden" role="alert"></p>
+      <div class="modal-actions">
+        <button type="button" class="outline" data-close-admin-editor>Annuler</button>
         <button class="success" type="submit">Continuer</button>
       </div>
     </form>
@@ -531,7 +622,8 @@
   </aside>
 
   <script src="vendor/jspdf.umd.min.js"></script>
-  <script src="secure-app.js?v=23"></script>
-  <script src="mascot.js?v=7"></script>
+  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" async defer></script>
+  <script src="secure-app.js?v=27"></script>
+  <script src="mascot.js?v=11"></script>
 </body>
 </html>

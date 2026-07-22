@@ -33,6 +33,7 @@ body {
 
 body {
   margin: 0;
+  padding-bottom: env(safe-area-inset-bottom, 0);
   background: var(--page);
   color: var(--navy);
   -webkit-font-smoothing: antialiased;
@@ -1247,6 +1248,78 @@ textarea {
   min-height: 360px;
 }
 
+#admin-secret-trigger {
+  cursor: pointer;
+  transform-origin: center;
+}
+
+#admin-secret-trigger.brand-logo-tapped {
+  animation: brand-logo-tap 240ms ease-out;
+}
+
+@keyframes brand-logo-tap {
+  50% {
+    transform: scale(0.92) rotate(-2deg);
+  }
+}
+
+.settings-form {
+  margin-top: 24px;
+  padding: 24px;
+  border: 1px solid #b9d1e1;
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: var(--shadow-sm);
+}
+
+.settings-grid,
+.secret-settings {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.settings-grid .full-width {
+  grid-column: 1 / -1;
+}
+
+.secret-settings {
+  margin-top: 22px;
+  padding-top: 22px;
+  border-top: 1px solid var(--line);
+}
+
+.settings-form label {
+  color: var(--navy-soft);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.settings-form input {
+  width: 100%;
+  margin-top: 7px;
+}
+
+.settings-form small {
+  display: block;
+  min-height: 18px;
+  margin-top: 6px;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.settings-note {
+  margin: 18px 0 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.settings-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 20px;
+}
+
 .admin-heading h1 {
   margin: 0;
 }
@@ -1425,6 +1498,28 @@ textarea {
 
 .unlock-submit {
   margin-top: 20px;
+}
+
+.turnstile-field {
+  display: grid;
+  gap: 7px;
+  margin-top: 18px;
+  min-width: 0;
+}
+
+.turnstile-field.hidden {
+  display: none;
+}
+
+#turnstile-widget {
+  min-height: 65px;
+  width: 100%;
+  overflow: hidden;
+}
+
+.turnstile-field small {
+  color: var(--muted);
+  font-size: 0.78rem;
 }
 
 .close-modal {
@@ -1905,6 +2000,7 @@ textarea {
 
 .assistant-chat {
   flex: 1;
+  min-height: 190px;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -1951,15 +2047,45 @@ textarea {
 }
 
 .assistant-footer {
+  flex: 0 0 auto;
+  max-height: 175px;
   padding: 11px;
   border-top: 1px solid var(--line);
   background: #fff;
+  overflow-y: auto;
 }
 
 .assistant-suggestions {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+}
+
+.assistant-test-cases {
+  flex-basis: 100%;
+  margin-top: 2px;
+  border-top: 1px solid var(--line);
+  padding-top: 7px;
+}
+
+.assistant-test-cases summary {
+  color: var(--blue-dark);
+  cursor: pointer;
+  font-size: 0.72rem;
+  font-weight: 700;
+  list-style-position: inside;
+}
+
+.assistant-test-buttons {
+  display: grid;
+  gap: 5px;
+  margin-top: 7px;
+}
+
+.assistant-test-buttons .suggest-btn {
+  width: 100%;
+  border-radius: 9px;
+  text-align: left;
 }
 
 .suggest-btn {
@@ -2115,6 +2241,23 @@ textarea {
     grid-template-columns: 1fr;
   }
 
+  .settings-grid,
+  .secret-settings {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-grid .full-width {
+    grid-column: auto;
+  }
+
+  .settings-form {
+    padding: 18px;
+  }
+
+  .settings-actions button {
+    width: 100%;
+  }
+
   .admin-log-entry {
     gap: 10px;
   }
@@ -2175,6 +2318,66 @@ textarea {
     bottom: 10px;
     transform: scale(0.82);
     transform-origin: bottom right;
+  }
+
+  .assistant-panel {
+    width: min(330px, calc(100vw - 20px));
+    height: min(430px, calc(100dvh - 24px));
+  }
+}
+
+@media (max-width: 480px) {
+  .landing {
+    padding: 14px;
+  }
+
+  .landing-card {
+    padding: 24px 16px;
+    border-radius: 22px;
+  }
+
+  .landing-mark-stage {
+    width: 138px;
+    height: 138px;
+  }
+
+  .choice-grid {
+    gap: 12px;
+    margin-top: 24px;
+  }
+
+  .choice-button {
+    min-height: 120px;
+    padding: 20px 16px;
+  }
+
+  .admin-main {
+    width: calc(100% - 24px);
+    padding: 26px 0 54px;
+  }
+
+  .admin-tabs {
+    grid-template-columns: 1fr;
+  }
+
+  .topbar {
+    padding-left: max(8px, env(safe-area-inset-left));
+    padding-right: max(8px, env(safe-area-inset-right));
+  }
+
+  .patient-sidebar {
+    padding: 18px 14px;
+  }
+
+  .doctor-main {
+    padding-right: 10px;
+    padding-left: 10px;
+  }
+
+  .surface,
+  .patient-header,
+  .feature-card {
+    border-radius: 15px;
   }
 }
 

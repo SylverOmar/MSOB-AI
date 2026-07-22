@@ -70,14 +70,29 @@ window.addEventListener("DOMContentLoaded", () => {
       if (robotHeartbeatPulse) robotHeartbeatPulse.style.display = "block";
       return;
     }
+    if (
+      session?.role === "doctor"
+      && session.lastActivity
+      && Date.now() - session.lastActivity >= session.idleLimitMs
+    ) {
+      setStillPose();
+      if (visorTimer) {
+        visorTimer.textContent = "00:00";
+        visorTimer.style.display = "block";
+      }
+      if (robotEyes) robotEyes.style.display = "none";
+      session.expireIfIdle?.();
+      return;
+    }
     if (robotHeartbeatPulse) robotHeartbeatPulse.style.display = "none";
     if (countdownActive()) {
       setStillPose();
       panel.classList.add("hidden");
       panel.setAttribute("aria-hidden", "true");
       const remaining = Math.max(0, session.idleLimitMs - (Date.now() - session.lastActivity));
-      const minutes = Math.floor(remaining / 60_000);
-      const seconds = Math.floor((remaining % 60_000) / 1000);
+      const totalSeconds = Math.ceil(remaining / 1000);
+      const minutes = Math.floor(totalSeconds / 60);
+      const seconds = totalSeconds % 60;
       visorTimer.textContent = `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
       visorTimer.style.display = "block";
       robotEyes.style.display = "none";
@@ -238,7 +253,8 @@ window.addEventListener("DOMContentLoaded", () => {
   }, { passive: true });
   document.addEventListener("touchend", finishDrag);
 
-  const supportEmail = "support@msob.ai";
+  let supportEmail = "support@msob.ai";
+  let activeIdentity = { role: null, firstName: "" };
   const contexts = {
     landing: {
       intro: "Bonjour ! Je peux vous aider à choisir le bon espace.",
@@ -278,6 +294,9 @@ window.addEventListener("DOMContentLoaded", () => {
         ["report", "Que faire du rapport reçu ?", "Relancer réutilise exactement le même texte et les mêmes fichiers sans les redemander. Confirmer demande votre propre ID puis enregistre le rapport dans les consultations précédentes."],
         ["folder", "Comment gérer le dossier médical ?", "Ouvrez « Dossier médical » pour consulter les notes et télécharger les fichiers. « Modifier les informations » permet d'ajouter ou retirer des éléments avant confirmation avec votre ID."],
         ["session", "Quand la session expire-t-elle ?", "La session expire après 30 minutes sans activité. Une analyse clinique en cours suspend ce délai, qui repart de 30 minutes lorsqu'elle se termine. Ouvrir cet assistant réinitialise le délai ; déplacer le robot ou seulement revenir sur l'onglet ne le fait pas."],
+        ["case-hassan", "Cas test : Hassan TAHIRI", "Dyspnée aiguë depuis deux jours avec orthopnée, toux productive apparue après un épisode de fausse route, prise de 2 kg en une semaine et confusion légère. Température : 37,8 °C ; tension artérielle : 142/88 mmHg ; fréquence cardiaque : 104/min, irrégulière ; fréquence respiratoire : 27/min ; SpO2 : 89 % à l'air ambiant. L'examen retrouve des crépitants bilatéraux prédominant à droite, une turgescence jugulaire et des œdèmes des membres inférieurs. Demande d'avis urgent sur l'orientation diagnostique et la prise en charge initiale."],
+        ["case-salma", "Cas test : Salma AMRANI", "Aggravation depuis 24 heures d'une dyspnée initialement à l'effort, maintenant présente au repos, associée à une douleur basithoracique droite augmentée à l'inspiration, des palpitations et une toux sèche. Température : 38,1 °C ; fréquence cardiaque : 112/min ; fréquence respiratoire : 25/min ; SpO2 : 92 % à l'air ambiant. Un voyage aérien de six heures a eu lieu dix jours auparavant. Le mollet gauche est légèrement douloureux à la palpation. Demande d'avis urgent sur les diagnostics à exclure et la conduite à tenir."],
+        ["case-karim", "Cas test : Karim BENNANI", "Fièvre persistante depuis dix jours avec frissons, sueurs nocturnes, asthénie, perte de 3 kg et dyspnée d'effort croissante. Température : 38,6 °C ; tension artérielle : 118/72 mmHg ; fréquence cardiaque : 98/min ; SpO2 : 95 % à l'air ambiant. L'auscultation retrouve un souffle systolique apical plus net qu'à l'habitude. De possibles pétéchies conjonctivales et une discrète splénomégalie sont notées. Des hémocultures sont en attente. Demande d'avis sur la priorité diagnostique et la prise en charge."],
       ],
     },
     admin: {
@@ -292,11 +311,33 @@ window.addEventListener("DOMContentLoaded", () => {
     },
   };
 
+  window.addEventListener("msob:runtime-config", (event) => {
+    const nextEmail = String(event.detail?.supportEmail || "").trim();
+    if (!nextEmail || nextEmail === supportEmail) return;
+    for (const context of Object.values(contexts)) {
+      for (const question of context.questions) {
+        question[2] = String(question[2]).replaceAll(supportEmail, nextEmail);
+      }
+    }
+    supportEmail = nextEmail;
+  });
+
   let activeContext = document.documentElement.dataset.assistantContext || "landing";
   let typingGeneration = 0;
 
   function currentContext() {
     return contexts[activeContext] || contexts.landing;
+  }
+
+  function currentIntro(context) {
+    const firstName = String(activeIdentity.firstName || "").trim();
+    if (activeContext === "doctor" && activeIdentity.role === "doctor" && firstName) {
+      return "Bonjour Dr " + firstName + ". Choisissez une question ci-dessous.";
+    }
+    if (activeContext === "admin" && activeIdentity.role === "admin" && firstName) {
+      return "Bonjour " + firstName + ". Je peux vous guider dans l'espace Administration.";
+    }
+    return context.intro;
   }
 
   function setSuggestionsDisabled(disabled) {
@@ -312,16 +353,34 @@ window.addEventListener("DOMContentLoaded", () => {
     chatLog.replaceChildren();
     const intro = document.createElement("div");
     intro.className = "assistant-msg assistant-bot";
-    intro.textContent = context.intro;
+    intro.textContent = currentIntro(context);
     chatLog.append(intro);
     suggestions.replaceChildren();
-    for (const [key, question] of context.questions) {
+    const standardQuestions = context.questions.filter(([key]) => !String(key).startsWith("case-"));
+    const testCases = context.questions.filter(([key]) => String(key).startsWith("case-"));
+    const appendQuestionButton = (parent, key, question) => {
       const button = document.createElement("button");
       button.className = "suggest-btn";
       button.type = "button";
       button.dataset.q = key;
       button.textContent = question;
-      suggestions.append(button);
+      parent.append(button);
+    };
+    for (const [key, question] of standardQuestions) {
+      appendQuestionButton(suggestions, key, question);
+    }
+    if (testCases.length) {
+      const testGroup = document.createElement("details");
+      testGroup.className = "assistant-test-cases";
+      const summary = document.createElement("summary");
+      summary.textContent = "Cas cliniques de test (" + testCases.length + ")";
+      const buttons = document.createElement("div");
+      buttons.className = "assistant-test-buttons";
+      for (const [key, question] of testCases) {
+        appendQuestionButton(buttons, key, question);
+      }
+      testGroup.append(summary, buttons);
+      suggestions.append(testGroup);
     }
     positionBubble();
   }
@@ -371,6 +430,16 @@ window.addEventListener("DOMContentLoaded", () => {
     renderAssistantContext(event.detail?.context || "landing");
   });
 
+  window.addEventListener("msob:assistant-identity", (event) => {
+    activeIdentity = {
+      role: event.detail?.role || null,
+      firstName: String(event.detail?.firstName || "").trim(),
+    };
+    if (activeContext === "doctor" || activeContext === "admin") {
+      renderAssistantContext(activeContext);
+    }
+  });
+
   renderAssistantContext(activeContext);
 
   setTimeout(() => {
@@ -384,7 +453,7 @@ window.addEventListener("DOMContentLoaded", () => {
     positionBubble();
   });
   window.addEventListener("msob:analysis-state", refreshCountdown);
-  setInterval(refreshCountdown, 1000);
+  setInterval(refreshCountdown, 250);
   document.addEventListener("visibilitychange", refreshCountdown);
   refreshCountdown();
 });

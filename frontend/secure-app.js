@@ -1,14 +1,21 @@
 "use strict";
 
-const CONFIG = Object.freeze({
+const CONFIG = {
   gatewayUrl: "https://inqnyoqqhtogrvgjyavo.supabase.co/rest/v1/rpc/msob_gateway",
+  publicConfigUrl: "https://inqnyoqqhtogrvgjyavo.supabase.co/rest/v1/rpc/msob_public_runtime_config",
+  ownerGatewayUrl: "https://inqnyoqqhtogrvgjyavo.supabase.co/rest/v1/rpc/msob_owner_gateway",
   fileFunctionUrl: "https://inqnyoqqhtogrvgjyavo.supabase.co/functions/v1/msob-medical-files",
   publishableKey: "sb_publishable_m45iFH-I3oUdBtz8Bl0_-g_DemQoMoH",
   productionWebhookFile: "PRODUCTION_WEBHOOK.txt",
+  productionWebhookUrl: "",
   testWebhookUrl: "https://stg-agentic.abafusion.ai/api/v1/webhook/fc3a3d9d-43d9-4b2a-b6b7-5704af3814a2",
-  mcpUploadUrl: "http://127.0.0.1:8002/upload",
-  mcpQueueUrl: "http://127.0.0.1:8002/queue",
   testMailboxUrl: "https://ntfy.sh/inqnyoqqhtogrvgjyavo/json?poll=1",
+  hostedMcpUrl: "https://msob-ai.vercel.app/api/mcp",
+  hostedMcpQueueUrl: "https://inqnyoqqhtogrvgjyavo.supabase.co/functions/v1/msob-medical-files",
+  groqVisionModel: "meta-llama/llama-4-scout-17b-16e-instruct",
+  supportEmail: "support@msob.ai",
+  turnstileSiteKey: "",
+  turnstileLocalTestSiteKey: "1x00000000000000000000AA",
   doctorSessionKey: "msob_doctor_session_v2",
   legacyClinicalRequestKey: "msob_active_clinical_request_v1",
   doctorIdleMs: 30 * 60 * 1000,
@@ -16,7 +23,7 @@ const CONFIG = Object.freeze({
   clinicalPollIntervalMs: 3_000,
   clinicalReturnTimeoutMs: 30 * 60 * 1000,
   maxStoredFileBytes: 25 * 1024 * 1024,
-});
+};
 
 const GENDERS = [
   "Féminin",
@@ -57,7 +64,13 @@ const state = {
   removedDocumentIds: new Set(),
   editingDoctor: null,
   adminDoctors: [],
+  adminAdmins: [],
   adminLogs: [],
+  isOwnerAdmin: false,
+  runtimeSettings: null,
+  editingAdmin: null,
+  adminSecretClicks: 0,
+  adminSettingsReturnTab: "doctors",
   adminActiveTab: "doctors",
   patientEditorRole: "doctor",
   deletePatientTarget: null,
@@ -65,6 +78,10 @@ const state = {
   confirmCancel: null,
   doctorLastActivity: 0,
   doctorLastServerTouch: 0,
+  doctorIdleTimer: null,
+  turnstileWidgetId: null,
+  turnstileToken: "",
+  turnstileRenderGeneration: 0,
   testStartedAt: Date.now(),
 };
 
@@ -175,7 +192,16 @@ function formatBytes(value) {
 
 function friendlyError(error) {
   const raw = error instanceof Error ? error.message : String(error || "");
-  if (/duplicate|unique|cin.*exist|already exists/i.test(raw)) {
+  if (/identifiant.*d[ée]j[àa].*utilis[ée].*(m[ée]decin|administrateur)/i.test(raw)) {
+    return "Cet identifiant est déjà attribué dans l'autre espace. Choisissez-en un autre.";
+  }
+  if (/turnstile|anti-robot|captcha/i.test(raw)) {
+    return "La vérification anti-robot a échoué. Attendez sa réinitialisation puis réessayez.";
+  }
+  if (/duplicate.*(admin_id|doctor_id)|unique.*(admin_id|doctor_id)|(administrateur|docteur).*(admin_id|doctor_id)/i.test(raw)) {
+    return "Cet identifiant est déjà attribué. Choisissez-en un autre.";
+  }
+  if (/cin.*(exist|duplicate|unique)|duplicate key.*cin|dossier_medical_patient.*cin/i.test(raw)) {
     return "Un dossier avec ce CIN existe déjà.";
   }
   if (
@@ -188,7 +214,7 @@ function friendlyError(error) {
   ) {
     return "ID médecin incorrect. Saisissez l'ID du médecin connecté.";
   }
-  if (/invalid.*(login|credential)|unknown.*(doctor|admin)|not found.*(doctor|admin)/i.test(raw)) {
+  if (/invalid.*(login|credential)|unknown.*(doctor|admin)|not found.*(doctor|admin)|identifiant.*(invalide|introuvable|non reconnu)/i.test(raw)) {
     return "Identifiant non reconnu.";
   }
   if (/session|token|unauthori[sz]ed|forbidden|expired|autorisation/i.test(raw)) {
@@ -261,6 +287,65 @@ async function gateway(action, payload = {}, token = state.token) {
     throw new Error(data.message || data.error || data.details || `Erreur ${response.status}`);
   }
   return data;
+}
+
+async function postRpc(url, body) {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      apikey: CONFIG.publishableKey,
+      Authorization: `Bearer ${CONFIG.publishableKey}`,
+    },
+    body: JSON.stringify(body),
+    cache: "no-store",
+  });
+  const data = await parseJsonResponse(response);
+  if (!response.ok) {
+    throw new Error(data.message || data.error || data.details || `Erreur ${response.status}`);
+  }
+  return data;
+}
+
+function applyRuntimeConfig(settings = {}) {
+  const text = (key, fallback) => {
+    const value = String(settings[key] || "").trim();
+    return value || fallback;
+  };
+  CONFIG.supportEmail = text("support_email", CONFIG.supportEmail);
+  CONFIG.productionWebhookUrl = text("production_webhook_url", CONFIG.productionWebhookUrl);
+  CONFIG.testWebhookUrl = text("test_webhook_url", CONFIG.testWebhookUrl);
+  CONFIG.testMailboxUrl = text("test_mailbox_url", CONFIG.testMailboxUrl);
+  CONFIG.hostedMcpUrl = text("hosted_mcp_url", CONFIG.hostedMcpUrl);
+  CONFIG.hostedMcpQueueUrl = text("hosted_mcp_queue_url", CONFIG.hostedMcpQueueUrl);
+  CONFIG.groqVisionModel = text("groq_vision_model", CONFIG.groqVisionModel);
+  CONFIG.turnstileSiteKey = String(settings.turnstile_site_key || "").trim();
+  window.dispatchEvent(new CustomEvent("msob:runtime-config", {
+    detail: {
+      supportEmail: CONFIG.supportEmail,
+      hostedMcpUrl: CONFIG.hostedMcpUrl,
+    },
+  }));
+}
+
+async function loadPublicRuntimeConfig() {
+  try {
+    const settings = await postRpc(CONFIG.publicConfigUrl, {});
+    applyRuntimeConfig(settings);
+    return settings;
+  } catch (error) {
+    console.warn("Runtime configuration fallback in use", error);
+    applyRuntimeConfig();
+    return {};
+  }
+}
+
+async function ownerGateway(action, payload = {}) {
+  return postRpc(CONFIG.ownerGatewayUrl, {
+    p_action: action,
+    p_token: state.token || "",
+    p_payload: payload,
+  });
 }
 
 function fileHeaders(confirmDoctorId = "") {
@@ -453,7 +538,7 @@ function icon(name) {
     handicap: '<circle cx="12" cy="4" r="2"/><path d="M5 9h14M12 6v7M8 21l4-8 4 8"/>',
     doctor: '<path d="M6 4v4a5 5 0 0 0 10 0V4"/><path d="M4.5 4h3M14.5 4h3"/><path d="M11 13v2a4 4 0 0 0 8 0v-1"/><circle cx="19" cy="11.5" r="2"/>',
     admin: '<circle cx="9" cy="7" r="3"/><path d="M3 20c0-4 2.5-7 6-7 2 0 3.6.8 4.7 2.1"/><path d="M17 12l4 2v3c0 2.7-1.6 4.4-4 5-2.4-.6-4-2.3-4-5v-3z"/>',
-    clinical: '<path d="M6 3h12v18H6z"/><path d="M9 3V1h6v2M12 8v6M9 11h6M9 17h6"/>',
+    clinical: '<circle cx="12" cy="12" r="9"/><path d="M5 12h4l2-4 3 8 2-4h3"/>',
     folder: '<path d="M3 7h7l2 2h9v11H3z"/><path d="M14 12v5M11.5 14.5h5"/>',
     consultations: '<rect x="4" y="4" width="16" height="17" rx="2"/><path d="M9 4V2h6v2M8 9h8M8 13h8M8 17h5"/>',
     activity: '<path d="M2 12h4l2.2-5 3.2 10 2.6-7 2 4h6"/>',
@@ -473,6 +558,15 @@ function renderStaticIcons() {
 function setAssistantContext(context) {
   document.documentElement.dataset.assistantContext = context;
   window.dispatchEvent(new CustomEvent("msob:assistant-context", { detail: { context } }));
+}
+
+function setAssistantIdentity(actor = null, role = null) {
+  window.dispatchEvent(new CustomEvent("msob:assistant-identity", {
+    detail: actor && role ? {
+      role,
+      firstName: normalizeFirst(actor.prenom || ""),
+    } : { role: null, firstName: "" },
+  }));
 }
 
 function showOnlyArea(areaId) {
@@ -526,6 +620,7 @@ function setClinicalProcessing(processing, { refreshSession = true } = {}) {
     persistDoctorSession();
     void markDoctorActivity({ forceServer: true });
   }
+  scheduleDoctorIdleExpiry();
 }
 
 function applyDoctorAnalysisLock() {
@@ -644,7 +739,88 @@ function clearDoctorSession() {
   state.caseFiles = [];
   state.doctorLastActivity = 0;
   state.doctorLastServerTouch = 0;
+  clearDoctorIdleTimer();
   if (hadUnresolvedAnalysis) void clearAllClinicalQueues().catch(() => {});
+}
+
+function resetWorkspaceDrafts() {
+  stopClinicalMonitoringTimers();
+  disposeTurnstileWidget();
+  state.selectedPatientId = null;
+  state.selectedHistoryReportId = null;
+  state.pendingRole = null;
+  state.pendingReportRaw = null;
+  state.pendingReportPatientId = null;
+  state.analysisDraft = null;
+  state.analysisLocked = false;
+  state.analysisProcessing = false;
+  state.activeClinicalRequest = null;
+  state.caseFiles = [];
+  state.patientFiles = [];
+  state.folderFiles = [];
+  state.editingPatient = null;
+  state.patientDraft = null;
+  state.removedDocumentIds.clear();
+  state.editingDoctor = null;
+  state.editingAdmin = null;
+  state.deletePatientTarget = null;
+  state.confirmAction = null;
+  state.confirmCancel = null;
+  state.adminSecretClicks = 0;
+  state.adminSettingsReturnTab = "doctors";
+  state.adminActiveTab = "doctors";
+  state.patientEditorRole = "doctor";
+  state.runtimeSettings = null;
+
+  document.querySelectorAll("form").forEach((form) => form.reset());
+  for (const id of [
+    "patient-search",
+    "admin-patient-search",
+    "admin-log-search",
+    "case-text",
+    "patient-folder-text",
+    "folder-text",
+    "test-message",
+  ]) {
+    const field = $(id);
+    if (field) field.value = "";
+  }
+  for (const kind of ["case", "patient", "folder"]) updateSelectedFiles(kind);
+  for (const modal of $$(".modal")) modal.classList.add("hidden");
+  hide("pending-report");
+  hide("analysis-waiting");
+  hide("patient-screen");
+  show("doctor-home-screen");
+  showPatientSection("patient-menu");
+  $("pending-report-text").textContent = "";
+  $("test-output").textContent = "";
+  $("patient-list").replaceChildren();
+  $("admin-patient-list").replaceChildren();
+  $("doctor-list").replaceChildren();
+  $("admin-list").replaceChildren();
+  $("admin-log-list").replaceChildren();
+  $("patient-form-step").classList.remove("hidden");
+  $("patient-review-step").classList.add("hidden");
+  showDeletePatientStep("warning");
+  setOwnerUi(false);
+  applyDoctorAnalysisLock();
+}
+
+function resetAuthenticatedSession() {
+  clearDoctorSession();
+  resetWorkspaceDrafts();
+  state.role = null;
+  state.token = null;
+  state.actor = null;
+  state.patients = [];
+  state.reports = [];
+  state.documents = [];
+  state.adminDoctors = [];
+  state.adminAdmins = [];
+  state.adminLogs = [];
+  setAssistantIdentity();
+  history.replaceState(null, "", location.pathname);
+  showOnlyArea("landing");
 }
 
 function persistDoctorSession() {
@@ -657,17 +833,41 @@ function persistDoctorSession() {
 }
 
 async function expireDoctorSession(message = "") {
-  clearDoctorSession();
-  state.role = null;
-  state.token = null;
-  state.actor = null;
-  state.selectedPatientId = null;
-  state.patients = [];
-  state.reports = [];
-  state.documents = [];
-  history.replaceState(null, "", location.pathname);
-  showOnlyArea("landing");
+  resetAuthenticatedSession();
   if (message) toast(message, "warning");
+}
+
+function clearDoctorIdleTimer() {
+  if (state.doctorIdleTimer) clearTimeout(state.doctorIdleTimer);
+  state.doctorIdleTimer = null;
+}
+
+function scheduleDoctorIdleExpiry() {
+  clearDoctorIdleTimer();
+  if (
+    state.role !== "doctor"
+    || !state.doctorLastActivity
+    || analysisIsProcessing()
+  ) return;
+
+  const remaining = CONFIG.doctorIdleMs - (Date.now() - state.doctorLastActivity);
+  if (remaining <= 0) {
+    void expireDoctorSession("Votre session a expiré après 30 minutes d'inactivité.");
+    return;
+  }
+
+  state.doctorIdleTimer = setTimeout(() => {
+    state.doctorIdleTimer = null;
+    if (
+      state.role === "doctor"
+      && !analysisIsProcessing()
+      && Date.now() - state.doctorLastActivity >= CONFIG.doctorIdleMs
+    ) {
+      void expireDoctorSession("Votre session a expiré après 30 minutes d'inactivité.");
+    } else {
+      scheduleDoctorIdleExpiry();
+    }
+  }, remaining);
 }
 
 async function markDoctorActivity({ forceServer = false } = {}) {
@@ -683,6 +883,7 @@ async function markDoctorActivity({ forceServer = false } = {}) {
   }
   state.doctorLastActivity = now;
   persistDoctorSession();
+  scheduleDoctorIdleExpiry();
   if (!forceServer && now - state.doctorLastServerTouch < 60_000) return;
   state.doctorLastServerTouch = now;
   try {
@@ -714,6 +915,16 @@ window.MSOBSession = {
   markActivity() {
     void markDoctorActivity();
   },
+  expireIfIdle() {
+    if (
+      state.role === "doctor"
+      && !analysisIsProcessing()
+      && state.doctorLastActivity
+      && Date.now() - state.doctorLastActivity >= CONFIG.doctorIdleMs
+    ) {
+      void expireDoctorSession("Votre session a expiré après 30 minutes d'inactivité.");
+    }
+  },
 };
 
 async function restoreDoctorSession() {
@@ -733,6 +944,7 @@ async function restoreDoctorSession() {
     await gateway("touch-session");
     state.doctorLastServerTouch = Date.now();
     await loadDoctorData();
+    scheduleDoctorIdleExpiry();
     return true;
   } catch {
     clearDoctorSession();
@@ -743,6 +955,94 @@ async function restoreDoctorSession() {
   }
 }
 
+function isLocalApp() {
+  return location.hostname === "localhost" || location.hostname === "127.0.0.1";
+}
+
+function activeTurnstileSiteKey() {
+  return isLocalApp() ? CONFIG.turnstileLocalTestSiteKey : CONFIG.turnstileSiteKey;
+}
+
+function disposeTurnstileWidget() {
+  state.turnstileRenderGeneration += 1;
+  state.turnstileToken = "";
+  if (state.turnstileWidgetId !== null && window.turnstile?.remove) {
+    try {
+      window.turnstile.remove(state.turnstileWidgetId);
+    } catch {
+      // The widget may already have been removed with its modal contents.
+    }
+  }
+  state.turnstileWidgetId = null;
+  const container = $("turnstile-widget");
+  if (container) container.replaceChildren();
+}
+
+async function prepareTurnstileWidget() {
+  disposeTurnstileWidget();
+  const generation = state.turnstileRenderGeneration;
+  const siteKey = activeTurnstileSiteKey();
+  if (!siteKey) {
+    hide("turnstile-field");
+    return;
+  }
+  show("turnstile-field");
+
+  for (let attempt = 0; attempt < 80; attempt += 1) {
+    if (generation !== state.turnstileRenderGeneration || $("unlock-modal").classList.contains("hidden")) return;
+    if (window.turnstile?.render) {
+      state.turnstileWidgetId = window.turnstile.render("#turnstile-widget", {
+        sitekey: siteKey,
+        action: "msob-login",
+        theme: "light",
+        language: "fr",
+        size: "flexible",
+        appearance: "always",
+        retry: "auto",
+        "refresh-expired": "auto",
+        callback: (token) => {
+          state.turnstileToken = String(token || "");
+          setError("unlock-error");
+        },
+        "expired-callback": () => {
+          state.turnstileToken = "";
+        },
+        "error-callback": () => {
+          state.turnstileToken = "";
+          setError("unlock-error", "La vérification anti-robot n'a pas pu démarrer. Réessayez.");
+          return true;
+        },
+      });
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  setError("unlock-error", "La vérification anti-robot est indisponible. Vérifiez votre connexion puis réessayez.");
+}
+
+async function unlockThroughEdge(role, id) {
+  const response = await fetch(CONFIG.fileFunctionUrl, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      apikey: CONFIG.publishableKey,
+      Authorization: `Bearer ${CONFIG.publishableKey}`,
+    },
+    body: JSON.stringify({
+      operation: "unlock",
+      role,
+      id,
+      turnstile_token: state.turnstileToken,
+    }),
+    cache: "no-store",
+  });
+  const data = await parseJsonResponse(response);
+  if (!response.ok) {
+    throw new Error(data.message || data.error || data.details || `Erreur ${response.status}`);
+  }
+  return data;
+}
+
 function openUnlock(role) {
   state.pendingRole = role;
   setAssistantContext(role === "doctor" ? "doctor-login" : "admin-login");
@@ -750,6 +1050,7 @@ function openUnlock(role) {
   $("unlock-id").value = "";
   setError("unlock-error");
   show("unlock-modal");
+  void prepareTurnstileWidget();
   setTimeout(() => $("unlock-id").focus(), 0);
 }
 
@@ -760,14 +1061,19 @@ async function submitUnlock(event) {
     setError("unlock-error", "L'ID doit contenir 8 à 10 lettres et chiffres, avec au moins une lettre et un chiffre.");
     return;
   }
+  if (activeTurnstileSiteKey() && !state.turnstileToken) {
+    setError("unlock-error", "Attendez la fin de la vérification anti-robot.");
+    return;
+  }
   const button = event.submitter || event.currentTarget.querySelector('[type="submit"]');
   setButtonBusy(button, true, "Vérification…");
   try {
-    const data = await gateway("unlock", { role: state.pendingRole, id }, null);
+    const data = await unlockThroughEdge(state.pendingRole, id);
     state.role = data.role;
     state.token = data.sessionToken;
     state.actor = data.actor;
     hide("unlock-modal");
+    disposeTurnstileWidget();
     if (state.role === "doctor") {
       state.doctorLastActivity = Date.now();
       persistDoctorSession();
@@ -778,6 +1084,7 @@ async function submitUnlock(event) {
     }
   } catch (error) {
     setError("unlock-error", friendlyError(error));
+    if (activeTurnstileSiteKey()) void prepareTurnstileWidget();
   } finally {
     setButtonBusy(button, false);
   }
@@ -791,6 +1098,7 @@ async function loadDoctorData({ selectPatientId = null, section = null } = {}) {
   state.role = "doctor";
   $("doctor-name").textContent = `Dr ${state.actor.prenom} ${state.actor.nom}`;
   showOnlyArea("doctor-area");
+  setAssistantIdentity(state.actor, "doctor");
   history.replaceState(null, "", `${location.pathname}#doctor`);
   renderPatientList();
   if (selectPatientId && state.patients.some((patient) => patient.id === selectPatientId)) {
@@ -1268,10 +1576,15 @@ function submitFolderForm(event) {
 
 async function queueClinicalFile(requestId, blob, safeName, source) {
   const form = new FormData();
+  form.append("operation", "queue-upload");
   form.append("request_id", requestId);
   form.append("source", source);
   form.append("file", blob, safeName);
-  const response = await fetch(CONFIG.mcpUploadUrl, { method: "POST", body: form });
+  const response = await fetch(CONFIG.hostedMcpQueueUrl, {
+    method: "POST",
+    headers: fileHeaders(),
+    body: form,
+  });
   const data = await parseJsonResponse(response);
   if (!response.ok) throw new Error(data.message || "Le document n'a pas pu être préparé.");
   return data;
@@ -1280,17 +1593,30 @@ async function queueClinicalFile(requestId, blob, safeName, source) {
 async function discardClinicalQueue(requestId) {
   if (!requestId) return;
   try {
-    await fetch(`${CONFIG.mcpQueueUrl}/${encodeURIComponent(requestId)}`, { method: "DELETE" });
+    const form = new FormData();
+    form.append("operation", "queue-clear");
+    form.append("request_id", requestId);
+    await fetch(CONFIG.hostedMcpQueueUrl, {
+      method: "POST",
+      headers: fileHeaders(),
+      body: form,
+    });
   } catch {
     // The queue also expires automatically; cleanup failure must not mask the original error.
   }
 }
 
 async function clearAllClinicalQueues() {
-  const response = await fetch(CONFIG.mcpQueueUrl, { method: "DELETE" });
+  const form = new FormData();
+  form.append("operation", "queue-clear");
+  const response = await fetch(CONFIG.hostedMcpQueueUrl, {
+    method: "POST",
+    headers: fileHeaders(),
+    body: form,
+  });
   const data = await parseJsonResponse(response);
   if (!response.ok) {
-    throw new Error(data.message || "Le service local n'a pas pu vider les documents temporaires.");
+    throw new Error(data.message || "Le service n'a pas pu vider les documents temporaires.");
   }
   return data;
 }
@@ -1340,6 +1666,14 @@ function buildClinicalInput(caseText, medicalTextEntries, patientContext) {
 }
 
 async function loadProductionWebhookUrl() {
+  if (CONFIG.productionWebhookUrl) {
+    try {
+      const runtimeUrl = new URL(CONFIG.productionWebhookUrl);
+      if (runtimeUrl.protocol === "https:") return runtimeUrl.href;
+    } catch {
+      // Fall through to the local text-file fallback below.
+    }
+  }
   let response;
   try {
     response = await fetch(
@@ -1437,6 +1771,7 @@ async function launchClinicalAnalysis({ draft: retainedDraft = null, retry = fal
       clinical_request_id: requestId,
       mcp_request_id: requestId,
       mcp_tool: "ocr_extract_document",
+      mcp_server_url: CONFIG.hostedMcpUrl,
       dossier_medical_text: medicalText,
       documents: {
         current_case: counts.caseCount,
@@ -1813,8 +2148,208 @@ function submitDoctorForm(event) {
   });
 }
 
+function setOwnerUi(enabled) {
+  state.isOwnerAdmin = Boolean(enabled);
+  $$('[data-admin-tab].owner-only').forEach((button) => {
+    button.classList.toggle("hidden", !state.isOwnerAdmin);
+  });
+  if (!state.isOwnerAdmin && new Set(["admins", "settings"]).has(state.adminActiveTab)) {
+    state.adminActiveTab = "doctors";
+  }
+}
+
+async function detectOwnerCapability() {
+  try {
+    const result = await ownerGateway("capabilities");
+    setOwnerUi(result.owner === true);
+  } catch {
+    setOwnerUi(false);
+  }
+  return state.isOwnerAdmin;
+}
+
+function renderAdminAdmins() {
+  const list = $("admin-list");
+  if (!list) return;
+  list.innerHTML = state.adminAdmins.length ? state.adminAdmins.map((adminRecord) => `
+    <li class="admin-record-row">
+      <div class="admin-record-main">
+        <strong>${escapeHtml(adminRecord.prenom)} ${escapeHtml(adminRecord.nom)}</strong>
+        <span>${escapeHtml(adminRecord.admin_id)}</span>
+      </div>
+      <div class="doctor-actions">
+        <button class="outline compact" type="button" data-edit-admin="${adminRecord.id}">Modifier</button>
+        ${adminRecord.is_owner ? "" : `<button class="danger-outline compact" type="button" data-delete-admin="${adminRecord.id}">Retirer</button>`}
+      </div>
+    </li>
+  `).join("") : '<li class="empty-state-line">Aucun administrateur autorisé.</li>';
+}
+
+async function loadOwnerAdmins() {
+  if (!state.isOwnerAdmin) return;
+  const list = $("admin-list");
+  if (list) list.innerHTML = '<li class="empty-state-line">Chargement…</li>';
+  try {
+    const result = await ownerGateway("list-admins");
+    state.adminAdmins = [...(result.admins || [])].sort((first, second) => {
+      const firstName = first.prenom.localeCompare(second.prenom, "fr", { sensitivity: "base" });
+      return firstName || first.nom.localeCompare(second.nom, "fr", { sensitivity: "base" });
+    });
+    renderAdminAdmins();
+  } catch (error) {
+    if (list) list.innerHTML = `<li class="form-error">${escapeHtml(friendlyError(error))}</li>`;
+  }
+}
+
+function openAdminEditor(adminRecord = null) {
+  if (!state.isOwnerAdmin) return;
+  state.editingAdmin = adminRecord;
+  const form = $("admin-editor-form");
+  form.reset();
+  $("admin-editor-title").textContent = adminRecord ? "Modifier l'administrateur" : "Ajouter un administrateur";
+  form.elements.prenom.value = adminRecord?.prenom || "";
+  form.elements.nom.value = adminRecord?.nom || "";
+  form.elements.admin_id.value = adminRecord?.admin_id || "";
+  setError("admin-editor-error");
+  show("admin-editor-modal");
+}
+
+function submitAdminEditor(event) {
+  event.preventDefault();
+  if (!state.isOwnerAdmin) return;
+  const values = Object.fromEntries(new FormData(event.currentTarget).entries());
+  const adminRecord = {
+    id: state.editingAdmin?.id || null,
+    prenom: normalizeFirst(values.prenom),
+    nom: normalizeLast(values.nom),
+    admin_id: String(values.admin_id || "").trim().toLowerCase(),
+  };
+  if (!validAccessId(adminRecord.admin_id)) {
+    setError("admin-editor-error", "L'ID doit contenir 8 à 10 lettres et chiffres, avec au moins une lettre et un chiffre.");
+    return;
+  }
+  hide("admin-editor-modal");
+  openConfirm({
+    title: adminRecord.id ? "Modifier l'administrateur" : "Ajouter l'administrateur",
+    text: "Saisissez l'ID du compte administrateur connecté pour confirmer.",
+    requireId: true,
+    onCancel: () => show("admin-editor-modal"),
+    action: async (confirmAdminId) => {
+      const result = await ownerGateway("save-admin", { confirmAdminId, admin: adminRecord });
+      if (result.admin?.is_owner) {
+        state.actor = { ...state.actor, ...result.admin };
+        $("admin-name").textContent = `${state.actor.prenom} ${state.actor.nom}`;
+      }
+      state.editingAdmin = null;
+      toast(adminRecord.id ? "Administrateur modifié." : "Administrateur ajouté.");
+      await loadOwnerAdmins();
+    },
+  });
+}
+
+function requestDeleteAdmin(adminId) {
+  const target = state.adminAdmins.find((item) => item.id === adminId);
+  if (!target || target.is_owner || !state.isOwnerAdmin) return;
+  openConfirm({
+    title: "Retirer cet administrateur",
+    text: `Retirer l'accès de ${target.prenom} ${target.nom} ? Saisissez l'ID du compte connecté pour confirmer.`,
+    requireId: true,
+    action: async (confirmAdminId) => {
+      await ownerGateway("delete-admin", { confirmAdminId, adminId });
+      toast("Accès administrateur retiré.");
+      await loadOwnerAdmins();
+    },
+  });
+}
+
+function fillRuntimeSettings(result) {
+  state.runtimeSettings = result;
+  const form = $("runtime-settings-form");
+  const settings = result.settings || {};
+  for (const name of [
+    "support_email",
+    "production_webhook_url",
+    "test_webhook_url",
+    "test_mailbox_url",
+    "hosted_mcp_url",
+    "hosted_mcp_queue_url",
+    "groq_vision_model",
+  ]) {
+    if (form.elements[name]) form.elements[name].value = settings[name] || "";
+  }
+  form.elements.groq_primary_key.value = "";
+  form.elements.groq_fallback_key.value = "";
+  $("groq-primary-status").textContent = result.groq_primary_configured ? "Clé configurée" : "Clé non configurée";
+  $("groq-fallback-status").textContent = result.groq_fallback_configured ? "Clé configurée" : "Clé non configurée";
+  setError("runtime-settings-error");
+}
+
+async function loadRuntimeSettings() {
+  if (!state.isOwnerAdmin) return;
+  setError("runtime-settings-error");
+  try {
+    fillRuntimeSettings(await ownerGateway("get-settings"));
+  } catch (error) {
+    setError("runtime-settings-error", friendlyError(error));
+  }
+}
+
+function submitRuntimeSettings(event) {
+  event.preventDefault();
+  if (!state.isOwnerAdmin) return;
+  const values = Object.fromEntries(new FormData(event.currentTarget).entries());
+  const settings = {};
+  for (const name of [
+    "support_email",
+    "production_webhook_url",
+    "test_webhook_url",
+    "test_mailbox_url",
+    "hosted_mcp_url",
+    "hosted_mcp_queue_url",
+    "groq_vision_model",
+  ]) settings[name] = String(values[name] || "").trim();
+
+  openConfirm({
+    title: "Enregistrer la configuration",
+    text: "Saisissez l'ID du compte administrateur connecté pour confirmer.",
+    requireId: true,
+    action: async (confirmAdminId) => {
+      await ownerGateway("save-settings", {
+        confirmAdminId,
+        settings,
+        groqPrimaryKey: String(values.groq_primary_key || "").trim(),
+        groqFallbackKey: String(values.groq_fallback_key || "").trim(),
+      });
+      await loadPublicRuntimeConfig();
+      await loadRuntimeSettings();
+      toast("Configuration enregistrée.");
+    },
+  });
+}
+
+function handleAdminLogoClick(event) {
+  const logo = event.currentTarget;
+  logo.classList.remove("brand-logo-tapped");
+  void logo.offsetWidth;
+  logo.classList.add("brand-logo-tapped");
+  if (!state.isOwnerAdmin || state.adminActiveTab === "settings") return;
+  state.adminSecretClicks += 1;
+  if (state.adminSecretClicks < 10) return;
+  state.adminSecretClicks = 0;
+  state.adminSettingsReturnTab = state.adminActiveTab;
+  setAdminTab("settings");
+}
+
+function closeRuntimeSettings() {
+  setAdminTab(state.adminSettingsReturnTab || "doctors");
+}
+
 function setAdminTab(tab) {
   const allowedTabs = new Set(["doctors", "patients", "test", "logs"]);
+  if (state.isOwnerAdmin) {
+    allowedTabs.add("admins");
+    allowedTabs.add("settings");
+  }
   state.adminActiveTab = allowedTabs.has(tab) ? tab : "doctors";
   $$("[data-admin-tab]").forEach((button) => {
     const active = button.dataset.adminTab === state.adminActiveTab;
@@ -1826,11 +2361,15 @@ function setAdminTab(tab) {
   $("admin-test-panel").classList.toggle("hidden", state.adminActiveTab !== "test");
   const logsPanel = $("admin-logs-panel");
   if (logsPanel) logsPanel.classList.toggle("hidden", state.adminActiveTab !== "logs");
+  $("admin-admins-panel")?.classList.toggle("hidden", state.adminActiveTab !== "admins");
+  $("admin-settings-panel")?.classList.toggle("hidden", state.adminActiveTab !== "settings");
   if (state.adminActiveTab === "test") {
     state.testStartedAt = Date.now();
     $("test-output").textContent = "";
   }
   if (state.adminActiveTab === "logs") void loadAdminActivityLogs();
+  if (state.adminActiveTab === "admins") void loadOwnerAdmins();
+  if (state.adminActiveTab === "settings") void loadRuntimeSettings();
 }
 
 const ACTIVITY_LABELS = Object.freeze({
@@ -1845,6 +2384,11 @@ const ACTIVITY_LABELS = Object.freeze({
   "doctor.created": "Médecin ajouté",
   "doctor.updated": "Médecin modifié",
   "doctor.deleted": "Médecin retiré",
+  "admin.created": "Administrateur ajouté",
+  "admin.updated": "Administrateur modifié",
+  "admin.deleted": "Administrateur retiré",
+  "settings.updated": "Configuration modifiée",
+  "security.settings.updated": "Protection des accès modifiée",
 });
 
 function renderAdminActivityLogs() {
@@ -1935,11 +2479,13 @@ function renderAdminPatientList() {
 async function loadAdminData({ activeTab = state.adminActiveTab } = {}) {
   state.role = "admin";
   showOnlyArea("admin-area");
+  setAssistantIdentity(state.actor, "admin");
   $("admin-name").textContent = `${state.actor.prenom} ${state.actor.nom}`;
   history.replaceState(null, "", `${location.pathname}#admin`);
   const [doctorData, patientData] = await Promise.all([
     gateway("list-doctors"),
     fetchAdminPatientData(),
+    detectOwnerCapability(),
   ]);
   state.adminDoctors = [...(doctorData.doctors || [])].sort((first, second) => {
     const firstName = first.prenom.localeCompare(second.prenom, "fr", { sensitivity: "base" });
@@ -2090,13 +2636,7 @@ function requestReturnToChoice() {
     text: "Quitter l'espace actuel et revenir au choix Médecin / Administration ?",
     requireId: false,
     action: async () => {
-      if (state.role === "doctor") clearDoctorSession();
-      state.role = null;
-      state.token = null;
-      state.actor = null;
-      state.selectedPatientId = null;
-      history.replaceState(null, "", location.pathname);
-      showOnlyArea("landing");
+      resetAuthenticatedSession();
     },
   });
 }
@@ -2131,7 +2671,12 @@ function bindEvents() {
   $("patient-review-confirm").addEventListener("click", confirmPatientReview);
   $("folder-form").addEventListener("submit", submitFolderForm);
   $("doctor-form").addEventListener("submit", submitDoctorForm);
+  $("admin-editor-form").addEventListener("submit", submitAdminEditor);
+  $("runtime-settings-form").addEventListener("submit", submitRuntimeSettings);
+  $("admin-secret-trigger").addEventListener("click", handleAdminLogoClick);
+  $("close-runtime-settings").addEventListener("click", closeRuntimeSettings);
   $("add-doctor").addEventListener("click", () => openDoctorModal());
+  $("add-admin").addEventListener("click", () => openAdminEditor());
   $("admin-add-patient").addEventListener("click", () => openPatientModal(null, { editorRole: "admin" }));
   $$("[data-admin-tab]").forEach((button) => {
     button.addEventListener("click", () => setAdminTab(button.dataset.adminTab));
@@ -2153,11 +2698,17 @@ function bindEvents() {
 
   closeModalByAttribute("data-close-unlock", "unlock-modal");
   $$("[data-close-unlock]").forEach((button) => {
-    button.addEventListener("click", () => setAssistantContext("landing"));
+    button.addEventListener("click", () => {
+      disposeTurnstileWidget();
+      state.pendingRole = null;
+      $("unlock-form").reset();
+      setAssistantContext("landing");
+    });
   });
   closeModalByAttribute("data-close-patient", "patient-modal");
   closeModalByAttribute("data-close-folder", "folder-modal");
   closeModalByAttribute("data-close-doctor", "doctor-modal");
+  closeModalByAttribute("data-close-admin-editor", "admin-editor-modal");
   $$("[data-close-delete-patient]").forEach((button) => button.addEventListener("click", closeDeletePatientModal));
   $$("[data-close-confirm]").forEach((button) => button.addEventListener("click", () => closeConfirm()));
 
@@ -2193,6 +2744,15 @@ function bindEvents() {
     }
     const remove = event.target.closest("[data-delete-doctor]");
     if (remove) requestDeleteDoctor(remove.dataset.deleteDoctor);
+  });
+  $("admin-list").addEventListener("click", (event) => {
+    const edit = event.target.closest("[data-edit-admin]");
+    if (edit) {
+      openAdminEditor(state.adminAdmins.find((item) => item.id === edit.dataset.editAdmin));
+      return;
+    }
+    const remove = event.target.closest("[data-delete-admin]");
+    if (remove) requestDeleteAdmin(remove.dataset.deleteAdmin);
   });
   $("admin-patient-list").addEventListener("click", (event) => {
     const edit = event.target.closest("[data-admin-edit-patient]");
@@ -2244,6 +2804,7 @@ async function initialize() {
   localStorage.removeItem(CONFIG.legacyClinicalRequestKey);
   renderStaticIcons();
   bindEvents();
+  await loadPublicRuntimeConfig();
   $("test-output").textContent = "";
   setInterval(() => {
     if (state.role !== "doctor") return;
@@ -2253,14 +2814,25 @@ async function initialize() {
       void markDoctorActivity();
       return;
     }
-    if (Date.now() - state.doctorLastActivity >= CONFIG.doctorIdleMs) {
-      void expireDoctorSession("Votre session a expiré après 30 minutes d'inactivité.");
-    }
+    scheduleDoctorIdleExpiry();
   }, 15_000);
 
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) scheduleDoctorIdleExpiry();
+  });
+
   const restored = await restoreDoctorSession();
-  if (!restored) showOnlyArea("landing");
+  if (!restored) {
+    setAssistantIdentity();
+    showOnlyArea("landing");
+  }
   hide("app-loading");
+
+  if ("serviceWorker" in navigator && location.protocol === "https:") {
+    navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch((error) => {
+      console.warn("Service worker registration failed", error);
+    });
+  }
 }
 
 window.addEventListener("DOMContentLoaded", () => {

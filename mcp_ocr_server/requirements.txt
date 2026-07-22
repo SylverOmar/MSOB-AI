@@ -5,3 +5,5 @@ python-docx
 PyMuPDF
 mcp
 python-multipart
+uvicorn
+Pillow
