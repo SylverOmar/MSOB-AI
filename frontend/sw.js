@@ -1,11 +1,11 @@
 "use strict";
 
-const CACHE_NAME = "msob-static-v3";
+const CACHE_NAME = "msob-static-v4";
 const APP_SHELL = [
   "/",
   "/index.html",
   "/secure.css?v=28",
-  "/secure-app.js?v=28",
+  "/secure-app.js?v=29",
   "/mascot.js?v=12",
   "/manifest.webmanifest",
   "/favicon.png",

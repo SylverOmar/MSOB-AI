@@ -990,6 +990,16 @@ async function markSessionActivity(options = {}) {
   }
 }
 
+function isSessionNavigationShortcut(event) {
+  if (event?.type !== "keydown") return false;
+  const key = String(event.key || "");
+
+  if (["Alt", "Control", "Meta", "Shift"].includes(key)) return true;
+  if (key === "Tab" && (event.altKey || event.ctrlKey || event.metaKey)) return true;
+  if (["PageUp", "PageDown"].includes(key) && event.ctrlKey) return true;
+  return key === "`" && event.metaKey;
+}
+
 window.MSOBSession = {
   get role() {
     return state.role;
@@ -2893,6 +2903,7 @@ function bindEvents() {
 
   const activity = (event) => {
     if (event.target?.closest?.("#doctor-mascot-container")) return;
+    if (isSessionNavigationShortcut(event)) return;
     void markSessionActivity();
   };
   for (const eventName of ["pointerdown", "keydown", "touchstart", "wheel"]) {
