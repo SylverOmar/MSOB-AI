@@ -20,6 +20,7 @@ Launch MSOB AI.vbs
 launch_msob.bat
 launch_msob.ps1
 MCP Link.txt
+frontend/PRODUCTION_WEBHOOK.txt
 
 # Python and editor artifacts
 __pycache__/
